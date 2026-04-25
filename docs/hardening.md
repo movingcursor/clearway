@@ -1,0 +1,155 @@
+# Hardening checklist
+
+The compose stack ships with reasonable container hardening (cap_drop ALL,
+read-only rootfs, no-new-privileges, digest-pinned image, mem/cpu limits,
+healthcheck). That handles container-side security. The host the stack runs
+on is your responsibility.
+
+This is a checklist, not a tutorial — each item links out to a canonical
+reference. The point is "did you actually do these" before you point a
+public IP at this stack and start serving real users.
+
+## Pre-deploy
+
+- [ ] **SSH hardening.** Disable password auth + root login in
+  `/etc/ssh/sshd_config`:
+  - `PermitRootLogin no`
+  - `PasswordAuthentication no`
+  - `KbdInteractiveAuthentication no`
+  - `PermitEmptyPasswords no`
+  - And restart `ssh`. References:
+  [Mozilla SSH guide](https://infosec.mozilla.org/guidelines/openssh.html),
+  [DigitalOcean's hardening doc](https://www.digitalocean.com/community/tutorials/how-to-harden-openssh-on-ubuntu-22-04).
+  Confirm with `sudo ssh -G localhost | grep -E '(passwordauth|permitroot)'`.
+- [ ] **`fail2ban` or equivalent for SSH.** Even with key-only auth,
+  bots will hit port 22 forever. `apt install fail2ban` ships sensible
+  defaults; the `sshd` jail is on by default. Verify:
+  `sudo fail2ban-client status sshd`.
+- [ ] **Cloud-provider firewall.** The container hardening doesn't help
+  if you accidentally leave random ports open at the cloud-network layer.
+  - **Oracle Cloud:** edit the VCN's security list / NSG so only
+    `22/tcp` (SSH), `443/tcp` (Reality + WS-CDN), `443/udp` (Hysteria2),
+    `8443/tcp` (ShadowTLS) are reachable from `0.0.0.0/0`. Lock SSH to
+    your home IP if practical.
+  - **AWS:** same, via the VPC Security Group attached to the instance.
+  - **GCP:** same, via firewall rules attached to the VPC.
+  - **Hetzner / Scaleway / DO / etc.:** equivalent firewall panel in the
+    web console.
+- [ ] **Host firewall** as defense-in-depth (separate from cloud-side).
+  `ufw` on Debian/Ubuntu:
+  ```
+  sudo ufw default deny incoming
+  sudo ufw default allow outgoing
+  sudo ufw allow 22/tcp
+  sudo ufw allow 443/tcp
+  sudo ufw allow 443/udp
+  sudo ufw allow 8443/tcp
+  sudo ufw enable
+  ```
+  Verify: `sudo ufw status verbose`. Cloud firewall + host firewall
+  is belt-and-braces; if you can only do one, do the cloud firewall (it
+  blocks earlier in the path).
+- [ ] **Unattended security updates.** `unattended-upgrades` on Debian/
+  Ubuntu auto-installs security patches without human intervention:
+  ```
+  sudo apt install unattended-upgrades
+  sudo dpkg-reconfigure -plow unattended-upgrades
+  ```
+  Verify the timer is active: `systemctl status apt-daily-upgrade.timer`.
+  Reference: [Debian wiki](https://wiki.debian.org/UnattendedUpgrades).
+
+## Sysctls
+
+- [ ] **`net.ipv4.ip_unprivileged_port_start=443`** — required so the
+  singbox-server container's non-root UID can bind 443/8443. The
+  quickstart already has this; it goes in
+  `/etc/sysctl.d/99-singbox-unpriv-port.conf`.
+
+## Host-system
+
+- [ ] **Backup `.secrets.yaml`.** The renderer auto-generates UUIDs,
+  passwords, and the Reality keypair into this file. Losing it means
+  re-rotating every credential and re-onboarding every user. Encrypted
+  off-host backup is mandatory; rotate the encryption key separately.
+  The clearway repo intentionally doesn't ship a backup script — pick
+  one that fits your stack (`borg`, `restic`, `rclone` to a cloud
+  destination with `--password-command`, etc.).
+- [ ] **Backup `home_wg/*.conf`.** Each device's WireGuard private
+  key — losing one means re-deriving that device's WG identity and
+  pushing a new config to the user. Same backup target as
+  `.secrets.yaml`.
+- [ ] **Mount the secrets dir at 0700, files at 0600.** The renderer
+  clamps `.secrets.yaml` to 0600 on every write, but the parent
+  `singbox-profiles/` dir defaults to 0755. Tighten:
+  ```
+  chmod 0700 singbox-profiles/home_wg
+  ```
+- [ ] **Image bumps cadence.** sing-box releases regularly with
+  bug/security fixes. `singbox-server/bump-singbox-image.sh` validates
+  the new image with `sing-box check` before swapping the digest pin.
+  Run it monthly via cron (the quickstart has the line). Skipping bumps
+  for >6 months means missing real CVEs.
+
+## Things specifically NOT in scope
+
+These are out of scope for clearway. If you need them, build them
+alongside.
+
+- **Per-user bandwidth caps** at the sing-box layer (sing-box doesn't
+  support it — see [hazards.md #7](hazards.md#7-sing-box-has-no-per-user-hysteria2-bandwidth-caps)).
+- **Audit logging** of which user opened which connection (sing-box logs
+  user names per connection; if you want a SIEM-style audit trail, point
+  the container's stderr at a log shipper — promtail/Vector/Fluentbit
+  to Loki/Splunk/CloudWatch — and strip the ANSI colors per
+  [hazards.md #9](hazards.md#9-sing-box-ansi-colors-in-logs-are-not-suppressible-at-the-source)).
+- **DDoS protection.** Cloudflare in front of WS-CDN gets you some
+  layer-7 protection there. Reality / hy2 / ShadowTLS go direct to
+  the VPS — protection at that layer is the cloud provider's job
+  (Oracle Cloud, AWS Shield Standard, etc. — none of them are free
+  beyond a baseline level).
+- **Compliance certifications.** This is a household / small-team
+  tool. If you're handling regulated data over the tunnel, the
+  responsibility for whatever certification regime applies is on the
+  operator.
+
+## After deploy
+
+- [ ] **Verify the cloud firewall is what you expected.** From an
+  outside host:
+  ```
+  for port in 22 80 443 2222 3000 8080 8443 9090 9091; do
+    nc -zv -w 2 <your-vps-ip> $port 2>&1 | grep -E 'succeeded|refused|timed'
+  done
+  ```
+  Only 22, 443, 8443 should report "succeeded". (Add 80 if you serve
+  Let's Encrypt HTTP-01; otherwise it should be closed too.)
+- [ ] **Verify the singbox-server container is running with the
+  expected cap set.** Caps should be empty:
+  ```
+  docker inspect singbox-server --format '{{json .HostConfig.CapDrop}}'
+  # → ["ALL"]
+  docker inspect singbox-server --format '{{json .HostConfig.CapAdd}}'
+  # → null
+  ```
+  If `CapAdd` is non-null, something added a capability — review
+  before continuing.
+- [ ] **Verify pinned-by-digest, not by tag.** `docker inspect
+  singbox-server --format '{{.Config.Image}}'` should end in
+  `@sha256:<hex>`, not `:latest`. A `:latest` tag means the image can
+  be replaced under you between deploys.
+
+## Periodic
+
+These run as cron in production (the quickstart's cron block). Check
+quarterly that they're still firing:
+
+- `safe-restart.sh` — invoked by `render.py --server-apply` on every
+  cred rotation; should run cleanly, no error notifications.
+- `rotate-short-ids.sh` — monthly; cred rotation with 2h grace.
+- `rotate-hy2-cert.sh` — yearly; flag-day for hy2 specifically.
+- `rotate-reality-key.sh` — quarterly; flag-day for Reality.
+- `bump-singbox-image.sh` — monthly; controlled image-digest upgrade.
+
+A silent cron is a dead cron. Wire a `NOTIFY=` script (Discord, Slack,
+or your own webhook) into each so a failure pings someone. The
+suppliedscripts all support `NOTIFY` as an env-var hook.

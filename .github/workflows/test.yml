@@ -1,0 +1,30 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  golden-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # render.py's only runtime deps. Test fixtures + harness use stdlib.
+      - name: Install dependencies
+        run: pip install jsonschema pyyaml
+
+      - name: Render syntax check
+        run: python3 -c "import ast; ast.parse(open('singbox-profiles/render.py').read())"
+
+      - name: Golden-file tests
+        working-directory: singbox-profiles
+        run: python3 tests/test_render.py

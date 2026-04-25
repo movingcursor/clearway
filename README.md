@@ -1,5 +1,8 @@
 # Clearway
 
+[![tests](https://github.com/movingcursor/clearway/actions/workflows/test.yml/badge.svg)](https://github.com/movingcursor/clearway/actions/workflows/test.yml)
+[![license: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+
 Multi-user, multi-protocol [sing-box](https://github.com/SagerNet/sing-box)
 config generator + server stack for households and small teams in (or
 travelling to) restrictive networks.
@@ -92,6 +95,9 @@ PowerShell install command (Windows).
   hit in production. Read once even if everything looks fine — most of
   these took more than a weekend to root-cause and the workarounds are
   baked into the renderer.
+- [`docs/hardening.md`](docs/hardening.md) — pre-deploy security checklist
+  for the host the stack runs on (SSH, cloud firewall, backups, image
+  bumps). Read before pointing real users at a public IP.
 - [`singbox-profiles/home_wg/README.md`](singbox-profiles/home_wg/README.md)
   — `.conf` format for the optional home-egress feature.
 

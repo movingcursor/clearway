@@ -8,6 +8,11 @@ This walkthrough deploys the full default stack: ShadowTLS + Hysteria2 +
 VLESS+Reality + VLESS-over-WS-via-Cloudflare. Skip steps for inbounds you
 don't want.
 
+> **Before pointing real users at this**, work through
+> [docs/hardening.md](hardening.md). The container hardening shipped in
+> compose.yaml handles container-side security; the host the stack runs
+> on is your responsibility (SSH, cloud firewall, backups, image bumps).
+
 ## Prerequisites
 
 - A VPS with a public IP, Docker + Docker Compose v2, openssl, git.
