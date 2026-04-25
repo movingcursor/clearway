@@ -248,6 +248,59 @@ Don't try to wrap the container command with `sh -c '... | sed'` — that
 breaks pid-1 signal semantics (sing-box no longer receives SIGTERM
 cleanly), so `docker stop` waits the full grace period before SIGKILL.
 
+## 10. GFW marks IPs sending sustained UDP/443 volume — drops *all* incoming UDP for ~1h
+
+**Symptom.** Hysteria2 from CN works fine for a while, then a single
+client (or many clients sharing the same overseas server IP) suddenly
+loses *all* UDP connectivity to that server for tens of minutes to an
+hour. TCP to the same server (Reality on TCP/443, ShadowTLS on TCP/8443)
+keeps working. urltest demotes hy2; user notices nothing if they have
+TCP fallbacks enabled.
+
+**Why.** GFW maintains a per-IP heuristic that flags overseas hosts
+generating sustained high-volume UDP/443 flows from inside CN. Once
+flagged, all UDP from that host is dropped at the border for the
+rest of an hourly window (apernet/hysteria#1157, Telegram-sourced
+community report — not peer-reviewed but consistent enough that
+Hysteria upstream ships port-hopping for exactly this case). Salamander
+obfuscation does *not* help here; the heuristic is volume-based and
+shape-agnostic. The SNI-classifier vector documented in USENIX Sec '25
+(Zohaib et al.) is a separate mechanism that salamander *does* defeat.
+
+**Fix.** Hysteria2 port-hopping. Server keeps listening on a single
+port (e.g. UDP/443); a host iptables NAT redirect collapses a wide
+port range (e.g. UDP/20000-30000) onto that single listen port. Clients
+get `server_ports: ["20000:30000"]` instead of `server_port: 443` and
+dial random ports from the range — packets spread across thousands of
+5-tuples so no single flow accumulates enough volume to trip the
+heuristic.
+
+Three coordinated parts:
+
+1. **Manifest.** Add `server_ports: ["20000:30000"]` to
+   `defaults.hysteria2` in `profiles.yaml`. The renderer emits
+   `server_ports` *instead of* `server_port` when this is set
+   (sing-box's hy2 outbound dials `server_port` first if both are
+   present, defeating the spread).
+
+2. **Host iptables.** Run
+   `singbox-server/setup-hy2-port-hop.sh` on the docker host. It adds:
+   ```
+   iptables -t nat -A PREROUTING -d <hy2_listen_ip> -p udp \
+       --dport 20000:30000 -j REDIRECT --to-ports 443
+   ```
+   and persists via `netfilter-persistent save`. Idempotent — safe to
+   re-run.
+
+3. **Cloud firewall.** Open UDP `20000-30000` ingress on the VNIC
+   that hy2 binds to (the one matching `defaults.reality.server` in
+   `profiles.yaml`). On Oracle Cloud, this is one ingress rule on the
+   VCN security list. Once port-hopping is rolled out and clients have
+   updated, *remove* the UDP/443 rule — no client should hit it
+   anymore, and removing it shrinks the attack surface.
+
+The TCP/443 rule (Reality) stays — different protocol, different rule.
+
 ---
 
 ## Adding to this doc
