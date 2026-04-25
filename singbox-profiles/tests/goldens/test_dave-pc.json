@@ -163,7 +163,7 @@
       "type": "selector",
       "outbounds": [
         "🔀 Proxy",
-        "➡️ Direct"
+        "🌍 Default"
       ],
       "default": "🔀 Proxy"
     },

@@ -781,15 +781,9 @@ def frag_selectors(user, device, defaults):
 
     selectors = [fastest, proxy_selector]
 
-    # 🏠 Home Egress — only if user has home block.
-    if has_home:
-        selectors.append({
-            'tag': '🏠 Home Egress', 'type': 'selector',
-            'outbounds': ['🏠 Home', '🔀 Proxy', '➡️ Direct'],
-            'default': '🏠 Home',
-        })
-
-    # 🌍 Default — catch-all proxy selector.
+    # 🌍 Default — catch-all proxy selector. Listed before 🏠 Home Egress
+    # because most users interact with Default far more often (it's the
+    # global routing knob) and dashboards render selectors in array order.
     default_outbounds = ['🔀 Proxy']
     if has_home:
         default_outbounds.append('🏠 Home')
@@ -800,10 +794,26 @@ def frag_selectors(user, device, defaults):
         'default': '🔀 Proxy',
     })
 
-    # 🔒 Trusted — always-proxy for sensitive accounts.
+    # 🏠 Home Egress — only if user has home block.
+    # Fallback chain points at 🌍 Default (not 🔀 Proxy directly) so that
+    # flipping Default to Direct/Home propagates to home-country traffic
+    # too — keeps the user's "where does my traffic exit" choice in one
+    # place instead of needing to flip Proxy and Home Egress in lockstep.
+    if has_home:
+        selectors.append({
+            'tag': '🏠 Home Egress', 'type': 'selector',
+            'outbounds': ['🌍 Default', '🏠 Home', '➡️ Direct'],
+            'default': '🏠 Home',
+        })
+
+    # 🔒 Trusted — sensitive accounts. Default = 🔀 Proxy so banking /
+    # Apple / 1Password are always tunnelled regardless of where the user
+    # has Default pointed (a resident with Default=Direct still wants
+    # Trusted to tunnel). 🌍 Default is the secondary option for users
+    # who want Trusted to follow their global routing choice instead.
     selectors.append({
         'tag': '🔒 Trusted', 'type': 'selector',
-        'outbounds': ['🔀 Proxy', '➡️ Direct'],
+        'outbounds': ['🔀 Proxy', '🌍 Default'],
         'default': '🔀 Proxy',
     })
 
