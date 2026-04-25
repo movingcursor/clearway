@@ -37,8 +37,14 @@ rulesets:
   - { tag: ru-available-only-inside, url: https://cdn.jsdelivr.net/gh/runetfreedom/russia-v2ray-rules-dat@release/sing-box/rule-set-geosite/geosite-ru-available-only-inside.srs, update_interval: 1d }
 
 protocols:
-  recommended: [reality, ws_cdn, shadowtls, hysteria2]
+  recommended: [reality, shadowtls, hysteria2]
   notes: |
-    All four work. RKN/TSPU shifts targets, so keeping multiple paths
-    enabled is more important than picking a "best" protocol — urltest
-    handles the switch.
+    WS-CDN dropped from recommended: Cloudflare throttles Russian
+    users to ~16 KB per response (CF's own blog, 2025-06-09), with
+    eastern-RU full blocks reported since 2025-03-20 (net4people/bbs
+    #464) and CF ECH blocking since 2024-11-05 (net4people/bbs #417).
+    Domain-fronting through CF is no longer a survival path in RU.
+
+    Reality, ShadowTLS, and Hysteria2 still work; RKN/TSPU shifts
+    targets so urltest across the three remaining shapes is the
+    intended fallback strategy.

@@ -37,8 +37,18 @@ dns_reject_rulesets:
   - { tag: iran-ads,      url: https://cdn.jsdelivr.net/gh/chocolate4u/Iran-sing-box-rules@rule-set/geosite-category-ads-all.srs, update_interval: 1d }
 
 protocols:
-  recommended: [reality, ws_cdn, shadowtls, hysteria2]
+  recommended: [shadowtls, ws_cdn]
   notes: |
-    All four work today, but hysteria2 (QUIC over UDP/443) is the most
-    likely to be throttled or blocked outright during periodic NIN
-    crackdowns — keep WS-CDN enabled as the survival path.
+    Reality dropped: MCI/TCI block Reality server IPs within hours of
+    detection (Xray-core #2451, #3269); the 2025 "stealth blackout"
+    tightened the protocol whitelist further. Reality is not a viable
+    primary in IR.
+
+    Hysteria2 dropped: QUIC is disabled on all Iranian ISPs as of the
+    June 2025 shutdown — unidentified UDP is dropped on most networks,
+    MCI/TCI tear down QUIC after 2-3 packets (net4people/bbs #489).
+
+    ShadowTLS+SS2022 is the most consistent surviving path: per Jigsaw
+    and net4people summaries, blocking it would break government TLS
+    dependencies. WS-CDN is unreliable post-blackout but kept as a
+    secondary because state varies by ISP.
