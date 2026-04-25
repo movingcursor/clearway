@@ -1,0 +1,44 @@
+# Iran. National firewall is more aggressive on QUIC and on
+# TLS-with-uncommon-SNIs than CN/RU. WS-CDN through Cloudflare is the
+# most consistently reliable path.
+flag: 🇮🇷
+label: IR
+
+doh_tag: shecan_doh
+doh_server: free.shecan.ir
+
+# Bootstrap DNS for users physically in IR. 1.1.1.1 is ISP-filtered
+# under the national firewall; Shecan Public DNS is reachable inside IR
+# and resolves CF hostnames truthfully for the pre-tunnel WS-CDN host
+# lookup. Shecan is also a common Iranian unblocker so its use doesn't
+# stand out on the wire.
+bootstrap_dns: 178.22.122.100
+
+tld_suffixes: [ir]
+
+geosite: geosite-ir
+geoip: geoip-ir
+
+# No IR-specific blocked-list in the current config (the country is so
+# broadly filtered that "blocked sites with .ir TLDs" isn't a meaningful
+# subset).
+blocked_ruleset: null
+
+rulesets:
+  - { tag: geosite-ir, url: https://cdn.jsdelivr.net/gh/chocolate4u/Iran-sing-box-rules@rule-set/geosite-ir.srs, update_interval: 1d }
+  - { tag: geoip-ir,   url: https://cdn.jsdelivr.net/gh/chocolate4u/Iran-sing-box-rules@rule-set/geoip-ir.srs,   update_interval: 1d }
+
+# Chocolate4u maintains country-specific threat/ad lists for IR that
+# catch Iranian phishing/malware domains not covered by the global
+# hagezi lists. Emitted into the DNS reject rule alongside hagezi.
+dns_reject_rulesets:
+  - { tag: iran-malware,  url: https://cdn.jsdelivr.net/gh/chocolate4u/Iran-sing-box-rules@rule-set/geosite-malware.srs,          update_interval: 1d }
+  - { tag: iran-phishing, url: https://cdn.jsdelivr.net/gh/chocolate4u/Iran-sing-box-rules@rule-set/geosite-phishing.srs,         update_interval: 1d }
+  - { tag: iran-ads,      url: https://cdn.jsdelivr.net/gh/chocolate4u/Iran-sing-box-rules@rule-set/geosite-category-ads-all.srs, update_interval: 1d }
+
+protocols:
+  recommended: [reality, ws_cdn, shadowtls, hysteria2]
+  notes: |
+    All four work today, but hysteria2 (QUIC over UDP/443) is the most
+    likely to be throttled or blocked outright during periodic NIN
+    crackdowns — keep WS-CDN enabled as the survival path.

@@ -1,0 +1,44 @@
+# Russia. RKN/TSPU does selective protocol/SNI blocking; the four
+# protocols give different DPI signatures so urltest can switch when
+# one shape gets flagged.
+flag: 🇷🇺
+label: RU
+
+doh_tag: yandex_doh
+doh_server: common.dns.yandex.net
+
+# Bootstrap DNS for users physically in RU. 1.1.1.1 is increasingly
+# interfered-with under RKN filtering; Yandex Public DNS is reachable
+# and resolves CF hostnames truthfully for the pre-tunnel WS-CDN host
+# lookup. Tradeoff: Yandex sees the lookup, but the WS-CDN host →
+# CF edge IPs are pooled across many sites, so this leaks little.
+bootstrap_dns: 77.88.8.8
+
+tld_suffixes: [ru, su]
+
+geosite: geosite-ru          # used for DNS routing (→ yandex_doh)
+geoip: geoip-ru              # used for 🚨 Restricted routing
+
+# Restricted-route override: prefer "ru-available-only-inside" over the
+# broader geosite-ru. It's the subset of Russian domains that actually
+# *require* a Russian IP (banks, gov, geo-locked services). Using the
+# tighter set means only sites that truly need RU-Direct get routed
+# there; geosite-ru still carries DNS for RU domains in general.
+restricted_geosite: ru-available-only-inside
+
+blocked_ruleset:
+  tag: geosite-ru-blocked
+  url: https://cdn.jsdelivr.net/gh/runetfreedom/russia-v2ray-rules-dat@release/sing-box/rule-set-geosite/geosite-ru-blocked.srs
+  update_interval: 1d
+
+rulesets:
+  - { tag: geosite-ru, url: https://cdn.jsdelivr.net/gh/runetfreedom/russia-v2ray-rules-dat@release/sing-box/rule-set-geosite/geosite-category-ru.srs, update_interval: 1d }
+  - { tag: geoip-ru,   url: https://cdn.jsdelivr.net/gh/runetfreedom/russia-v2ray-rules-dat@release/sing-box/rule-set-geoip/geoip-ru.srs, update_interval: 1d }
+  - { tag: ru-available-only-inside, url: https://cdn.jsdelivr.net/gh/runetfreedom/russia-v2ray-rules-dat@release/sing-box/rule-set-geosite/geosite-ru-available-only-inside.srs, update_interval: 1d }
+
+protocols:
+  recommended: [reality, ws_cdn, shadowtls, hysteria2]
+  notes: |
+    All four work. RKN/TSPU shifts targets, so keeping multiple paths
+    enabled is more important than picking a "best" protocol — urltest
+    handles the switch.

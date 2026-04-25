@@ -205,98 +205,43 @@ HY2_CERT = SERVER_DIR / 'hy2.crt'
 PENDING_ROTATIONS = ROOT / '.pending-rotations.yaml'
 ROTATION_TTL_HOURS = 2  # credentials kept alive for 2h after removal from manifest
 
-# Country metadata. Each entry describes how a country's DoH + rule-sets +
-# routing rules are emitted. "uk" is a user-facing alias for geoip-gb (ISO).
-COUNTRY = {
-    'cn': {
-        'flag': '🇨🇳',
-        'label': 'CN',
-        'doh_tag': 'dnspod_doh',
-        'doh_server': 'doh.pub',
-        # Bootstrap DNS override for users physically in CN. 1.1.1.1 (the
-        # global default) is DNS-hijacked by the GFW; Alibaba Public DNS is
-        # reachable inside CN, fast, and willing to resolve Cloudflare
-        # hostnames truthfully (used for the pre-tunnel WS-CDN host lookup).
-        # Tradeoff: Alibaba sees the lookup instead of Cloudflare, but CF
-        # edge IPs are heavily pooled so this reveals little.
-        'bootstrap_dns': '223.5.5.5',
-        'tld_suffixes': ['cn'],
-        'geosite': 'geosite-cn',
-        'geoip': 'geoip-cn',
-        # Extra rule-set routed to 🌍 Default (bypassing the country selector)
-        # — GFW-blocked sites that happen to have CN ccTLDs (e.g. google.com.hk
-        # must tunnel, not go Direct).
-        'blocked_ruleset': {
-            'tag': 'gfwlist-cn',
-            'url': 'https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geosite/gfw.srs',
-            'update_interval': '7d',
-        },
-        'rulesets': [
-            {'tag': 'geosite-cn', 'url': 'https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geosite/cn.srs', 'update_interval': '7d'},
-            {'tag': 'geoip-cn',   'url': 'https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geoip/cn.srs',   'update_interval': '7d'},
-        ],
-    },
-    'ru': {
-        'flag': '🇷🇺',
-        'label': 'RU',
-        'doh_tag': 'yandex_doh',
-        'doh_server': 'common.dns.yandex.net',
-        # Bootstrap DNS override for users physically in RU. 1.1.1.1 is
-        # increasingly interfered-with under RKN filtering; Yandex Public
-        # DNS is reachable and resolves CF hostnames truthfully for the
-        # pre-tunnel WS-CDN host lookup. Tradeoff: Yandex sees the lookup,
-        # but the WS-CDN host → CF edge IPs are pooled across many sites,
-        # so this leaks little.
-        'bootstrap_dns': '77.88.8.8',
-        'tld_suffixes': ['ru', 'su'],
-        'geosite': 'geosite-ru',          # used for DNS routing (→ yandex_doh)
-        'geoip': 'geoip-ru',              # used for 🚨 Restricted routing
-        # Override: for Restricted routing, prefer "ru-available-only-inside"
-        # over the broader geosite-ru. It's the subset of Russian domains that
-        # actually *require* a Russian IP (banks, gov, geo-locked services).
-        # Using the tighter set means only sites that truly need RU-Direct get
-        # routed there; geosite-ru still carries DNS for RU domains in general.
-        'restricted_geosite': 'ru-available-only-inside',
-        'blocked_ruleset': {
-            'tag': 'geosite-ru-blocked',
-            'url': 'https://cdn.jsdelivr.net/gh/runetfreedom/russia-v2ray-rules-dat@release/sing-box/rule-set-geosite/geosite-ru-blocked.srs',
-            'update_interval': '1d',
-        },
-        'rulesets': [
-            {'tag': 'geosite-ru', 'url': 'https://cdn.jsdelivr.net/gh/runetfreedom/russia-v2ray-rules-dat@release/sing-box/rule-set-geosite/geosite-category-ru.srs', 'update_interval': '1d'},
-            {'tag': 'geoip-ru',   'url': 'https://cdn.jsdelivr.net/gh/runetfreedom/russia-v2ray-rules-dat@release/sing-box/rule-set-geoip/geoip-ru.srs', 'update_interval': '1d'},
-            {'tag': 'ru-available-only-inside', 'url': 'https://cdn.jsdelivr.net/gh/runetfreedom/russia-v2ray-rules-dat@release/sing-box/rule-set-geosite/geosite-ru-available-only-inside.srs', 'update_interval': '1d'},
-        ],
-    },
-    'ir': {
-        'flag': '🇮🇷',
-        'label': 'IR',
-        'doh_tag': 'shecan_doh',
-        'doh_server': 'free.shecan.ir',
-        # Bootstrap DNS override for users physically in IR. 1.1.1.1 is
-        # ISP-filtered under the national firewall; Shecan Public DNS is
-        # reachable inside IR and resolves CF hostnames truthfully for the
-        # pre-tunnel WS-CDN host lookup. Shecan is also a common Iranian
-        # unblocker so its use doesn't stand out on the wire.
-        'bootstrap_dns': '178.22.122.100',
-        'tld_suffixes': ['ir'],
-        'geosite': 'geosite-ir',
-        'geoip': 'geoip-ir',
-        'blocked_ruleset': None,  # no IR-specific blocked list in current config
-        'rulesets': [
-            {'tag': 'geosite-ir', 'url': 'https://cdn.jsdelivr.net/gh/chocolate4u/Iran-sing-box-rules@rule-set/geosite-ir.srs', 'update_interval': '1d'},
-            {'tag': 'geoip-ir',   'url': 'https://cdn.jsdelivr.net/gh/chocolate4u/Iran-sing-box-rules@rule-set/geoip-ir.srs',   'update_interval': '1d'},
-        ],
-        # Chocolate4u maintains country-specific threat/ad lists for IR that
-        # catch Iranian phishing/malware domains not covered by the global
-        # hagezi lists. Emitted into the DNS reject rule alongside hagezi.
-        'dns_reject_rulesets': [
-            {'tag': 'iran-malware',  'url': 'https://cdn.jsdelivr.net/gh/chocolate4u/Iran-sing-box-rules@rule-set/geosite-malware.srs',          'update_interval': '1d'},
-            {'tag': 'iran-phishing', 'url': 'https://cdn.jsdelivr.net/gh/chocolate4u/Iran-sing-box-rules@rule-set/geosite-phishing.srs',         'update_interval': '1d'},
-            {'tag': 'iran-ads',      'url': 'https://cdn.jsdelivr.net/gh/chocolate4u/Iran-sing-box-rules@rule-set/geosite-category-ads-all.srs', 'update_interval': '1d'},
-        ],
-    },
-}
+# Country metadata. Each restricted country lives in its own
+# `data/countries/<iso>.yaml` so adding/editing one is a self-contained
+# change. The loader builds the same `COUNTRY` dict the rest of the
+# renderer consumes — shape is back-compat with the old in-line literal.
+# "uk" is a user-facing alias for geoip-gb (ISO), handled separately
+# in the home-egress code path.
+def _load_countries():
+    countries = {}
+    for path in sorted((ROOT / 'data' / 'countries').glob('*.yaml')):
+        iso = path.stem
+        countries[iso] = yaml.safe_load(path.read_text())
+    return countries
+
+COUNTRY = _load_countries()
+
+
+def _warn_unrecommended_protocols(users):
+    """Soft per-country protocol check. Prints a stderr warning when a
+    user lists a protocol that isn't in `protocols.recommended` for any
+    of their countries. Doesn't filter — operator may know better."""
+    for name, user in users.items():
+        if name.startswith('_'):
+            continue
+        user_protos = set(user.get('protocols', []))
+        if not user_protos:
+            continue
+        recommended = set()
+        for cc in user.get('countries', []):
+            for p in (COUNTRY.get(cc, {}).get('protocols') or {}).get('recommended', []):
+                recommended.add(p)
+        bad = user_protos - recommended
+        if bad and recommended:
+            ccs = ','.join(user.get('countries', []))
+            print(f"warning: user {name!r} has protocol(s) {sorted(bad)} not "
+                  f"recommended for any of countries [{ccs}] — see "
+                  f"data/countries/<iso>.yaml notes",
+                  file=sys.stderr)
 
 # Home-egress countries are expected to be ISO-2 country codes that SagerNet
 # ships a geoip rule-set for. Maps user-facing label → ISO-2 code when the
@@ -2292,6 +2237,7 @@ def main():
     # skipped under `-y` (unambiguous 1:1 renames auto-apply; ambiguous ones
     # abort rather than silently rotating).
     manifest = load_manifest(auto_yes=args.yes)
+    _warn_unrecommended_protocols(manifest['users'])
     if args.validate:
         validate(manifest)
         # Also validate server config (in-memory), reusing compute_server_plan.
