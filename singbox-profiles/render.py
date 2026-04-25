@@ -228,6 +228,52 @@ COUNTRY = _load_countries()
 TLS_PROTOCOLS = {'reality', 'ws_cdn', 'shadowtls'}
 
 
+def _warn_unused_shadowtls_sni(users):
+    """Soft check: user sets `shadowtls_sni` but doesn't have `shadowtls`
+    in their protocols. Dead config — likely a leftover from a removed
+    protocol. Harmless, doesn't error."""
+    for name, user in users.items():
+        if name.startswith('_'):
+            continue
+        if not user.get('shadowtls_sni'):
+            continue
+        if 'shadowtls' in user.get('protocols', []):
+            continue
+        print(f"warning: user {name!r} has 'shadowtls_sni' set but no "
+              f"'shadowtls' protocol — field is unused",
+              file=sys.stderr)
+
+
+def _check_mobile_shadowtls_sni(users, defaults):
+    """Hard check: mobile sing-box (SFA/SFI) silently fails ShadowTLS
+    after one probe when the SNI comes from `defaults.shadowtls.sni_pool`
+    (see hazards.md #2 / project_shadowtls_mobile_pooled_sni_break).
+    Mobile users with shadowtls must carry a per-user `shadowtls_sni`
+    override so they pin a known-good SNI instead of getting a hash-pick
+    from the pool. Single-`sni` deployments (no pool) are unaffected
+    and stay quiet. Exits non-zero with the full list of offenders."""
+    pool = (defaults.get('shadowtls') or {}).get('sni_pool') or []
+    if not pool:
+        return
+    bad = []
+    for name, user in users.items():
+        if name.startswith('_'):
+            continue
+        if 'shadowtls' not in user.get('protocols', []):
+            continue
+        if user.get('shadowtls_sni'):
+            continue
+        if any(d.get('type') == 'mobile' for d in user.get('devices', [])):
+            bad.append(name)
+    if bad:
+        for name in bad:
+            print(f"error: user {name!r} has shadowtls + a mobile device but "
+                  f"no per-user 'shadowtls_sni' override; mobile sing-box "
+                  f"breaks on pool-picked SNIs after one probe",
+                  file=sys.stderr)
+        sys.exit(1)
+
+
 def _warn_unused_utls_fingerprint(users):
     """Inverse of the hard check: warn (don't error) when a user sets
     `utls_fingerprint` but has no TLS-bearing protocol. The field is
@@ -2290,7 +2336,9 @@ def main():
     manifest = load_manifest(auto_yes=args.yes)
     _warn_missing_recommended_protocols(manifest['users'])
     _warn_unused_utls_fingerprint(manifest['users'])
+    _warn_unused_shadowtls_sni(manifest['users'])
     _check_per_user_utls_fingerprint(manifest['users'])
+    _check_mobile_shadowtls_sni(manifest['users'], manifest.get('defaults', {}))
     if args.validate:
         validate(manifest)
         # Also validate server config (in-memory), reusing compute_server_plan.
