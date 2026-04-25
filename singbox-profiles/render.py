@@ -331,11 +331,18 @@ BLOCKLIST_RULESETS = [
 ]
 
 # Domains that always route via 🔒 Trusted (never via a Direct country alias).
-TRUSTED_DOMAINS = [
-    '1password.com', 'adobe.com', 'apple.com', 'icloud.com',
-    'microsoft.com', 'microsoftonline.com', 'live.com', 'office.com',
-    'paypal.com', 'chase.com',
-]
+# Sourced from data/trusted_domains.txt so the list can be edited without
+# touching code. One suffix per line; `#` comments and blank lines are ignored.
+def _load_trusted_domains():
+    path = ROOT / 'data' / 'trusted_domains.txt'
+    out = []
+    for raw in path.read_text().splitlines():
+        line = raw.split('#', 1)[0].strip()
+        if line:
+            out.append(line)
+    return out
+
+TRUSTED_DOMAINS = _load_trusted_domains()
 
 # IPs of our own proxy servers — always Direct to avoid tunnel loops.
 # Populated from defaults.proxy_server_ips in profiles.yaml at manifest load
