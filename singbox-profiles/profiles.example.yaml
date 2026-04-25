@@ -52,6 +52,15 @@ defaults:
     # this hostname. Generate with `singbox-server/rotate-hy2-cert.sh`.
     server_port: 443
     sni: cloud.example.com
+    # Optional: enable port-hopping for clients (recommended for CN
+    # users — see docs/hazards.md "hy2 UDP/443 IP-marking"). When set,
+    # clients dial random ports from this range instead of server_port,
+    # spreading volume so no single 5-tuple flow trips the GFW's per-IP
+    # heavy-UDP heuristic. Server still listens on server_port; a host
+    # iptables redirect (set up via singbox-server/setup-hy2-port-hop.sh)
+    # collapses the range back to that single port. Open the same UDP
+    # range in your cloud firewall.
+    # server_ports: ["20000:30000"]
 
   # Optional: list of /32 CIDRs that should always route Direct from a
   # client. Useful when your server has multiple public IPs (or you run

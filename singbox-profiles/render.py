@@ -706,9 +706,9 @@ def frag_outbound_hysteria2(defaults, pw):
     # in sing-box (see project_singbox_hy2_no_per_user_caps memory).
     up_mbps = d.get('up_mbps', 30)
     down_mbps = d.get('down_mbps', 200)
-    return {
+    out = {
         'type': 'hysteria2', 'tag': '🚀 Hysteria2',
-        'server': defaults['reality']['server'], 'server_port': d['server_port'],
+        'server': defaults['reality']['server'],
         'password': pw,
         'up_mbps': up_mbps,
         'down_mbps': down_mbps,
@@ -716,6 +716,20 @@ def frag_outbound_hysteria2(defaults, pw):
         'tls': {'enabled': True, 'server_name': d['sni'], 'alpn': ['h3'],
                 'certificate': cert_lines},
     }
+    # Port-hopping. If defaults.hysteria2.server_ports is set, emit
+    # server_ports (a list of "low:high" range strings) and omit
+    # server_port entirely — sing-box would otherwise dial server_port
+    # first, defeating the per-IP UDP volume-marking mitigation that
+    # port-hopping exists for. Server-side: a host iptables redirect
+    # collapses the range back to defaults.hysteria2.server_port.
+    # Without server_ports, behave as before (single-port). See
+    # docs/hazards.md.
+    server_ports = d.get('server_ports')
+    if server_ports:
+        out['server_ports'] = list(server_ports)
+    else:
+        out['server_port'] = d['server_port']
+    return out
 
 
 def protocol_outbound_tags(protocols):

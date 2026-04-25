@@ -199,7 +199,6 @@
       "type": "hysteria2",
       "tag": "🚀 Hysteria2",
       "server": "198.51.100.10",
-      "server_port": 443,
       "password": "TEST_HY2_PW_ALICE_____",
       "up_mbps": 30,
       "down_mbps": 200,
@@ -220,7 +219,8 @@
           "TESTHY2CERTLINE2222222222222222222222222222222222222222222222==",
           "-----END CERTIFICATE-----"
         ]
-      }
+      },
+      "server_port": 443
     },
     {
       "tag": "⚡ Fastest",
