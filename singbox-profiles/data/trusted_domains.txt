@@ -23,4 +23,4 @@ office.com
 
 # Banking
 paypal.com
-chase.com
+wise.com
