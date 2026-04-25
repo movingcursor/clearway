@@ -221,26 +221,26 @@ def _load_countries():
 COUNTRY = _load_countries()
 
 
-def _warn_unrecommended_protocols(users):
+def _warn_missing_recommended_protocols(users):
     """Soft per-country protocol check. Prints a stderr warning when a
-    user lists a protocol that isn't in `protocols.recommended` for any
-    of their countries. Doesn't filter — operator may know better."""
+    user is missing a protocol that any of their countries recommends.
+    Doesn't filter — operator may know better (e.g. testing a narrower
+    protocol set, or excluding one for a specific user). Edit the
+    `protocols.recommended` list in data/countries/<iso>.yaml to change
+    what fires."""
     for name, user in users.items():
         if name.startswith('_'):
             continue
         user_protos = set(user.get('protocols', []))
-        if not user_protos:
-            continue
-        recommended = set()
+        recommended_by = {}  # protocol → list of countries that recommend it
         for cc in user.get('countries', []):
             for p in (COUNTRY.get(cc, {}).get('protocols') or {}).get('recommended', []):
-                recommended.add(p)
-        bad = user_protos - recommended
-        if bad and recommended:
-            ccs = ','.join(user.get('countries', []))
-            print(f"warning: user {name!r} has protocol(s) {sorted(bad)} not "
-                  f"recommended for any of countries [{ccs}] — see "
-                  f"data/countries/<iso>.yaml notes",
+                recommended_by.setdefault(p, []).append(cc)
+        missing = {p: ccs for p, ccs in recommended_by.items() if p not in user_protos}
+        if missing:
+            details = ', '.join(f"{p} (recommended for {','.join(ccs)})"
+                                for p, ccs in sorted(missing.items()))
+            print(f"warning: user {name!r} missing recommended protocol(s): {details}",
                   file=sys.stderr)
 
 # Home-egress countries are expected to be ISO-2 country codes that SagerNet
@@ -2237,7 +2237,7 @@ def main():
     # skipped under `-y` (unambiguous 1:1 renames auto-apply; ambiguous ones
     # abort rather than silently rotating).
     manifest = load_manifest(auto_yes=args.yes)
-    _warn_unrecommended_protocols(manifest['users'])
+    _warn_missing_recommended_protocols(manifest['users'])
     if args.validate:
         validate(manifest)
         # Also validate server config (in-memory), reusing compute_server_plan.
