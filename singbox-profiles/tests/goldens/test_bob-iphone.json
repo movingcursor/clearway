@@ -1,0 +1,298 @@
+{
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "ntp": {
+    "enabled": true,
+    "server": "pool.ntp.org",
+    "server_port": 123,
+    "interval": "30m"
+  },
+  "dns": {
+    "independent_cache": true,
+    "servers": [
+      {
+        "tag": "bootstrap_dns",
+        "type": "udp",
+        "server": "223.5.5.5",
+        "server_port": 53,
+        "detour": "➡️ Direct"
+      },
+      {
+        "tag": "fakeip-server",
+        "type": "fakeip",
+        "inet4_range": "198.18.0.0/15"
+      },
+      {
+        "tag": "cloudflare_doh",
+        "type": "https",
+        "server": "1.1.1.1",
+        "server_port": 443,
+        "path": "/dns-query",
+        "detour": "🔀 Proxy"
+      }
+    ],
+    "rules": [
+      {
+        "domain": [
+          "vpnws.example.com"
+        ],
+        "server": "bootstrap_dns"
+      },
+      {
+        "rule_set": [
+          "hagezi-tif",
+          "hagezi-adblock"
+        ],
+        "action": "reject"
+      },
+      {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "server": "fakeip-server"
+      },
+      {
+        "server": "cloudflare_doh"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "address": [
+        "172.16.0.1/30"
+      ],
+      "auto_route": true,
+      "strict_route": true,
+      "mtu": 1380,
+      "stack": "mixed"
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "➡️ Direct",
+      "type": "direct",
+      "udp_fragment": false
+    },
+    {
+      "tag": "🇨🇳 CN",
+      "type": "direct"
+    },
+    {
+      "type": "vless",
+      "tag": "🔐 Reality",
+      "server": "198.51.100.10",
+      "server_port": 443,
+      "uuid": "00000000-0000-4000-8000-000000000201",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "console.example.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "safari"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "TEST_REALITY_PUBLIC_KEY_______________________",
+          "short_id": 8866977288321
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "☁️ WS-CDN",
+      "server": "vpnws.example.com",
+      "server_port": 443,
+      "uuid": "00000000-0000-4000-8000-000000000002",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "vpnws.example.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "safari"
+        },
+        "ech": {
+          "enabled": true
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/ws",
+        "headers": {
+          "Host": "vpnws.example.com"
+        }
+      }
+    },
+    {
+      "tag": "⚡ Fastest",
+      "type": "urltest",
+      "outbounds": [
+        "🔐 Reality",
+        "☁️ WS-CDN"
+      ],
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "10m",
+      "tolerance": 150,
+      "idle_timeout": "1h",
+      "interrupt_exist_connections": true
+    },
+    {
+      "tag": "🔀 Proxy",
+      "type": "selector",
+      "outbounds": [
+        "⚡ Fastest",
+        "🔐 Reality",
+        "☁️ WS-CDN"
+      ],
+      "default": "⚡ Fastest"
+    },
+    {
+      "tag": "🌍 Default",
+      "type": "selector",
+      "outbounds": [
+        "🔀 Proxy",
+        "➡️ Direct"
+      ],
+      "default": "🔀 Proxy"
+    },
+    {
+      "tag": "🔒 Trusted",
+      "type": "selector",
+      "outbounds": [
+        "🔀 Proxy",
+        "➡️ Direct"
+      ],
+      "default": "🔀 Proxy"
+    },
+    {
+      "tag": "🚨 Restricted",
+      "type": "selector",
+      "outbounds": [
+        "🌍 Default",
+        "🇨🇳 CN"
+      ],
+      "default": "🇨🇳 CN"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "default_domain_resolver": "cloudflare_doh",
+    "final": "🔀 Proxy",
+    "rule_set": [
+      {
+        "tag": "hagezi-tif",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/razaxq/dns-blocklists-sing-box@rule-set/hagezi-tif.srs",
+        "download_detour": "🌍 Default",
+        "update_interval": "6h"
+      },
+      {
+        "tag": "hagezi-adblock",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/razaxq/dns-blocklists-sing-box@rule-set/hagezi-pro.srs",
+        "download_detour": "🌍 Default",
+        "update_interval": "12h"
+      },
+      {
+        "tag": "geosite-cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geosite/cn.srs",
+        "download_detour": "🌍 Default",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "geoip-cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geoip/cn.srs",
+        "download_detour": "🌍 Default",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "gfwlist-cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geosite/gfw.srs",
+        "download_detour": "🌍 Default",
+        "update_interval": "7d"
+      }
+    ],
+    "rules": [
+      {
+        "port": 53,
+        "action": "hijack-dns"
+      },
+      {
+        "inbound": "tun-in",
+        "action": "sniff"
+      },
+      {
+        "network": "udp",
+        "port": 443,
+        "action": "reject"
+      },
+      {
+        "network": "tcp",
+        "port": 853,
+        "action": "reject"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "➡️ Direct"
+      },
+      {
+        "domain_suffix": [
+          "local",
+          "lan"
+        ],
+        "outbound": "➡️ Direct"
+      },
+      {
+        "domain_suffix": [
+          "1password.com",
+          "adobe.com",
+          "apple.com",
+          "icloud.com",
+          "microsoft.com",
+          "microsoftonline.com",
+          "live.com",
+          "office.com",
+          "paypal.com",
+          "chase.com"
+        ],
+        "outbound": "🔒 Trusted"
+      },
+      {
+        "rule_set": [
+          "gfwlist-cn"
+        ],
+        "outbound": "🌍 Default"
+      },
+      {
+        "rule_set": [
+          "geosite-cn",
+          "geoip-cn"
+        ],
+        "outbound": "🚨 Restricted"
+      }
+    ]
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "cache.db",
+      "store_rdrc": true,
+      "rdrc_timeout": "7d",
+      "store_fakeip": true
+    }
+  }
+}

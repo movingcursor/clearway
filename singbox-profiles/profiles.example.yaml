@@ -1,0 +1,109 @@
+# Clearway example manifest. Copy to profiles.yaml and edit; render.py reads
+# profiles.yaml + .secrets.yaml + home_wg/*.conf and emits per-device sing-box
+# configs. Credentials live in .secrets.yaml (auto-managed); WG identities
+# live in home_wg/<user>-<device>.conf (one per home-egress device).
+#
+# Three archetypes are shown here, each exercising a different render path:
+#   - alice : admin traveller, every protocol, multi-country, home_wg egress
+#   - bob   : single-country resident, two protocols, no home_wg
+#   - carol : single-country resident with a per-user ShadowTLS SNI override
+
+defaults:
+  # uTLS fingerprint applied to every TLS handshake unless a user overrides
+  # it. Spreading fingerprints across users helps make JA3/JA4 hashes look
+  # like "different households" rather than one signature.
+  utls_fingerprint: chrome
+
+  reality:
+    # Public IP of your sing-box server (the address Reality clients dial).
+    server: 203.0.113.10
+    server_port: 443
+    # Reality "handshake" SNI — the cover host whose TLS handshake Reality
+    # borrows. MUST support TLS 1.3 (Reality embeds its auth in the TLS 1.3
+    # handshake; a TLS-1.2-only host fails every connection). Verify with:
+    #   openssl s_client -tls1_3 -connect <host>:443 -servername <host>
+    # Pick a real, busy, allowed-everywhere site that's plausibly reachable
+    # from your VPS (e.g. a major cloud provider's console / docs domain).
+    handshake_sni: console.example.com
+    flow: xtls-rprx-vision
+
+  ws_cdn:
+    # The Cloudflare-fronted hostname that fronts your WebSocket inbound.
+    # Point a DNS A record at Cloudflare's edge with proxy ON; Cloudflare
+    # terminates TLS for you and forwards to your origin via HTTP.
+    host: vpnws.example.com
+    path: /ws
+    port: 443
+
+  shadowtls:
+    # ShadowTLS v3 listens on a distinct TCP port (NOT :443 — Reality has
+    # that). The port is otherwise arbitrary; pick one not already used.
+    server_port: 8443
+    version: 3
+    # Default ShadowTLS handshake SNI. Per-user override available via
+    # users.<name>.shadowtls_sni. When sni_pool is set the renderer hashes
+    # the username into the pool for stable per-user assignment.
+    sni: cloud.example.com
+    # sni_pool: [docs.example.com, console.example.com, cloud.example.com]
+    shadowsocks_method: 2022-blake3-aes-256-gcm
+
+  hysteria2:
+    # Hysteria2 binds UDP/443 (QUIC cover port). The cert SAN must match
+    # this hostname. Generate with `singbox-server/rotate-hy2-cert.sh`.
+    server_port: 443
+    sni: cloud.example.com
+
+  # Optional: list of /32 CIDRs that should always route Direct from a
+  # client. Useful when your server has multiple public IPs (or you run
+  # multiple servers) and you want to avoid TUN hairpin loops on hy2's
+  # outer QUIC. Single-host deployments can leave this empty.
+  # proxy_server_ips:
+  #   - 203.0.113.10/32
+  #   - 203.0.113.11/32
+
+users:
+
+  # ────────────────────────────────────────────────────────────────────
+  # alice — admin traveller. Multi-country (CN+RU+IR), all 4 protocols,
+  # home-egress via WireGuard for IT/FR/UK traffic, and admin SSH bypass.
+  # Drop home_wg/alice-pixel9.conf and home_wg/alice-laptop.conf alongside
+  # this file (one .conf per device with a `home:` block).
+  # ────────────────────────────────────────────────────────────────────
+  alice:
+    countries: [cn, ru, ir]
+    protocols: [reality, ws_cdn, shadowtls, hysteria2]
+    utls_fingerprint: chrome
+    admin: true
+    home:
+      country: it
+      home_egress_countries: [it, fr, uk]
+      home_egress_tlds: [eu]
+    devices:
+      - { type: mobile,  name: pixel9 }
+      - { type: windows, name: laptop }
+
+  # ────────────────────────────────────────────────────────────────────
+  # bob — single-country resident, two protocols. Lives in CN, doesn't
+  # travel. Restricted defaults to the country-flag Direct so local sites
+  # (baidu, etc.) don't tunnel.
+  # ────────────────────────────────────────────────────────────────────
+  bob:
+    countries: [cn]
+    protocols: [reality, ws_cdn]
+    utls_fingerprint: safari
+    devices:
+      - { type: mobile, name: iphone }
+
+  # ────────────────────────────────────────────────────────────────────
+  # carol — single-country resident on Windows + mobile. Demonstrates
+  # the per-user ShadowTLS SNI override (useful when a pool member becomes
+  # unreliable, or to pin a user to a specific cover for debugging).
+  # ────────────────────────────────────────────────────────────────────
+  carol:
+    countries: [ru]
+    protocols: [reality, shadowtls]
+    utls_fingerprint: firefox
+    shadowtls_sni: docs.example.com
+    devices:
+      - { type: mobile,  name: iphone }
+      - { type: windows, name: pc }

@@ -1,0 +1,61 @@
+# Fixture manifest for golden-file tests. Deliberately covers the
+# combinations render.py actually branches on, NOT a copy of any production
+# manifest:
+#   - a traveller with every protocol + home_wg + admin   (test_alice)
+#   - a single-country resident with two protocols        (test_bob)
+#   - a multi-country traveller without home_wg           (test_carol)
+# All credentials are fixed (no random gen) so the rendered output is
+# deterministic and the goldens stay stable across reruns.
+defaults:
+  utls_fingerprint: chrome
+  reality:
+    server: 198.51.100.10
+    server_port: 443
+    handshake_sni: console.example.com
+    flow: xtls-rprx-vision
+  ws_cdn:
+    host: vpnws.example.com
+    path: /ws
+    port: 443
+  shadowtls:
+    server_port: 8443
+    version: 3
+    sni: cloud.example.com
+    shadowsocks_method: 2022-blake3-aes-256-gcm
+  hysteria2:
+    server_port: 443
+    sni: cloud.example.com
+
+users:
+
+  # Full-featured traveller: every protocol, home_wg egress, admin SSH.
+  # Exercises frag_outbound_* on every branch plus frag_home_endpoint.
+  test_alice:
+    countries: [cn, ru, ir]
+    protocols: [reality, ws_cdn, shadowtls, hysteria2]
+    utls_fingerprint: chrome
+    admin: true
+    home:
+      country: it
+      home_egress_countries: [it, fr, uk]
+      home_egress_tlds: [eu]
+    devices:
+      - { type: mobile,  name: pixel9 }
+      - { type: windows, name: laptop }
+
+  # Single-country resident, two protocols. Shorter outbound list,
+  # Restricted defaults to the country Direct.
+  test_bob:
+    countries: [cn]
+    protocols: [reality, ws_cdn]
+    utls_fingerprint: safari
+    devices:
+      - { type: mobile,  name: iphone }
+
+  # Two-country traveller without home_wg. Restricted defaults to 🌍 Default.
+  test_carol:
+    countries: [ru, ir]
+    protocols: [reality, hysteria2]
+    utls_fingerprint: firefox
+    devices:
+      - { type: windows, name: pc }
