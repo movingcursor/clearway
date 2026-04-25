@@ -131,6 +131,31 @@ Goldens are committed; CI runs the same harness on every push (Stage 5).
 
 Set in a repo-level `.env` (gitignored — see `.gitignore`).
 
+## Why these four protocols (DPI signature families)
+
+The four-protocol mix isn't an arbitrary "more is better" stack — each
+protocol covers a *different* DPI signature family. A national firewall
+that classifies and blocks one family typically can't apply the same
+classifier to the others without breaking unrelated traffic, so the
+client's urltest just switches lanes.
+
+| Family                              | Protocol             | What the wire looks like                                            |
+| ----------------------------------- | -------------------- | ------------------------------------------------------------------- |
+| TLS-mimic-no-tunnel                 | VLESS+Reality        | Real TLS handshake stolen from a public site; no SNI faking         |
+| CDN-fronted WebSocket               | VLESS-over-WS via CF | TLS to Cloudflare's edge with ECH, WS upgrade, VLESS inside         |
+| Handshake-with-passthrough          | ShadowTLS+SS-2022    | Real TLS handshake to a cover SNI, then encrypted payload over TCP  |
+| Obfuscated QUIC                     | Hysteria2 (salamander) | Random-looking UDP payload, no parseable QUIC Initial             |
+
+Adding a fifth protocol that falls into one of these families (e.g.
+TUIC v5 — also obfuscated QUIC, same family as hy2) doesn't add real
+resilience — a classifier that flags one will flag the other. We've
+deliberately *not* added several otherwise-popular protocols on this
+basis. As of early 2026 the only candidate in upstream-stable sing-box
+that opens a genuinely new family is **AnyTLS** (real TLS session +
+random padding + N:1 multiplex, available since sing-box v1.12.0), but
+field reports flag fingerprintable structural quirks; it's a watchlist
+item, not a default. Re-evaluate ~every 6 months.
+
 ## Threat model + design assumptions
 
 **In scope:**
