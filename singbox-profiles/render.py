@@ -221,6 +221,33 @@ def _load_countries():
 COUNTRY = _load_countries()
 
 
+# Protocols whose outbound speaks TLS through Go's crypto/tls and
+# therefore benefits from a per-user uTLS fingerprint (JA3/JA4
+# decorrelation across users). Hysteria2 is omitted: it runs over QUIC
+# with its own TLS impl and uTLS doesn't apply.
+TLS_PROTOCOLS = {'reality', 'ws_cdn', 'shadowtls'}
+
+
+def _warn_missing_per_user_utls_fingerprint(users, defaults):
+    """Soft check: a user with any TLS-bearing protocol but no per-user
+    `utls_fingerprint` falls back to defaults.utls_fingerprint, which
+    means every such user shares one ClientHello signature — defeating
+    the per-user decorrelation that's the whole point of the field.
+    Doesn't filter; operator may have a reason (e.g. one-user deploy)."""
+    for name, user in users.items():
+        if name.startswith('_'):
+            continue
+        if user.get('utls_fingerprint'):
+            continue
+        tls_protos = sorted(set(user.get('protocols', [])) & TLS_PROTOCOLS)
+        if tls_protos:
+            fallback = defaults.get('utls_fingerprint', 'chrome')
+            print(f"warning: user {name!r} has TLS protocol(s) {tls_protos} "
+                  f"but no per-user 'utls_fingerprint' — falls back to "
+                  f"defaults ({fallback!r}), losing JA3/JA4 decorrelation",
+                  file=sys.stderr)
+
+
 def _warn_missing_recommended_protocols(users):
     """Soft per-country protocol check. Prints a stderr warning when a
     user is missing a protocol that any of their countries recommends.
@@ -2238,6 +2265,7 @@ def main():
     # abort rather than silently rotating).
     manifest = load_manifest(auto_yes=args.yes)
     _warn_missing_recommended_protocols(manifest['users'])
+    _warn_missing_per_user_utls_fingerprint(manifest['users'], manifest.get('defaults', {}))
     if args.validate:
         validate(manifest)
         # Also validate server config (in-memory), reusing compute_server_plan.
