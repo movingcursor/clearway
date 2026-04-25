@@ -186,10 +186,20 @@ Stands on the shoulders of:
 
 - [SagerNet/sing-box](https://github.com/SagerNet/sing-box) — the protocol
   multiplexer this all runs on.
-- [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat),
-  [runetfreedom/russia-v2ray-rules-dat](https://github.com/runetfreedom/russia-v2ray-rules-dat),
-  [chocolate4u/Iran-sing-box-rules](https://github.com/chocolate4u/Iran-sing-box-rules) —
-  the country-specific rule-sets the renderer wires in by default.
+- [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat) —
+  the CN geosite/geoip rule-sets and the GFW geosite list used for split
+  routing in the CN profile.
+- [runetfreedom/russia-v2ray-rules-dat](https://github.com/runetfreedom/russia-v2ray-rules-dat) —
+  the RU geosite/geoip rule-sets, including the `ru-blocked` and
+  `ru-available-only-inside` subsets that drive the 🚨 Restricted route
+  for Russian users.
+- [chocolate4u/Iran-sing-box-rules](https://github.com/chocolate4u/Iran-sing-box-rules) —
+  the IR geosite/geoip rule-sets plus the malware/phishing/ads lists
+  layered into the default DNS reject rule when IR is enabled.
+- [SagerNet/sing-geoip](https://github.com/SagerNet/sing-geoip) — the
+  per-country geoip rule-sets the renderer pulls in for the optional
+  home-egress feature (one `geoip-<iso>.srs` per `home_egress_countries`
+  entry).
 - [Hagezi](https://github.com/hagezi/dns-blocklists) — the DNS
   threat-intelligence (TIF) and pro-adblock lists wired into the default
   DNS reject rule, served as sing-box rule-sets via
