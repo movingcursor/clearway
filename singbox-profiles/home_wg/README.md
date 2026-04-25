@@ -9,7 +9,7 @@ WireGuard endpoint pointing back at your home network.
 ## File naming
 
 ```
-home_wg/alice-pixel9.conf
+home_wg/alice-pixel.conf
 home_wg/alice-laptop.conf
 ```
 

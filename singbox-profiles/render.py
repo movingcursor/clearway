@@ -1446,7 +1446,7 @@ def _parse_wg_conf(text):
 def load_home_wg():
     """
     Load every home_wg/<user>-<device>.conf. Returns a nested dict:
-      { 'alice': { 'pixel9': {'interface': {...}, 'peer': {...}}, ... }, ... }
+      { 'alice': { 'pixel': {'interface': {...}, 'peer': {...}}, ... }, ... }
     Files that don't match the <user>-<device>.conf naming are skipped.
     Missing home_wg dir → empty dict (users with `home:` get errors later).
     """
@@ -1454,7 +1454,7 @@ def load_home_wg():
     if not HOME_WG_DIR.is_dir():
         return out
     for f in sorted(HOME_WG_DIR.glob('*.conf')):
-        stem = f.stem  # e.g. 'alice-pixel9'
+        stem = f.stem  # e.g. 'alice-pixel'
         if '-' not in stem:
             continue
         uname, dev_name = stem.split('-', 1)

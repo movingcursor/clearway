@@ -40,7 +40,7 @@ users:
       home_egress_countries: [it, fr, uk]
       home_egress_tlds: [eu]
     devices:
-      - { type: mobile,  name: pixel9 }
+      - { type: mobile,  name: pixel }
       - { type: windows, name: laptop }
 
   # Single-country resident, two protocols. Shorter outbound list,
