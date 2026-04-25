@@ -228,12 +228,14 @@ COUNTRY = _load_countries()
 TLS_PROTOCOLS = {'reality', 'ws_cdn', 'shadowtls'}
 
 
-def _warn_missing_per_user_utls_fingerprint(users, defaults):
-    """Soft check: a user with any TLS-bearing protocol but no per-user
-    `utls_fingerprint` falls back to defaults.utls_fingerprint, which
-    means every such user shares one ClientHello signature — defeating
-    the per-user decorrelation that's the whole point of the field.
-    Doesn't filter; operator may have a reason (e.g. one-user deploy)."""
+def _check_per_user_utls_fingerprint(users):
+    """Hard check: a user with any TLS-bearing protocol must have a
+    per-user `utls_fingerprint`. Without it, all such users collapse to
+    `defaults.utls_fingerprint` and share one ClientHello signature —
+    defeating the JA3/JA4 decorrelation the field exists for. Exits
+    non-zero with the full list of offenders so they can be fixed in
+    one pass."""
+    bad = []
     for name, user in users.items():
         if name.startswith('_'):
             continue
@@ -241,11 +243,14 @@ def _warn_missing_per_user_utls_fingerprint(users, defaults):
             continue
         tls_protos = sorted(set(user.get('protocols', [])) & TLS_PROTOCOLS)
         if tls_protos:
-            fallback = defaults.get('utls_fingerprint', 'chrome')
-            print(f"warning: user {name!r} has TLS protocol(s) {tls_protos} "
-                  f"but no per-user 'utls_fingerprint' — falls back to "
-                  f"defaults ({fallback!r}), losing JA3/JA4 decorrelation",
+            bad.append((name, tls_protos))
+    if bad:
+        for name, tls_protos in bad:
+            print(f"error: user {name!r} has TLS protocol(s) {tls_protos} "
+                  f"but no per-user 'utls_fingerprint' (required for "
+                  f"JA3/JA4 decorrelation)",
                   file=sys.stderr)
+        sys.exit(1)
 
 
 def _warn_missing_recommended_protocols(users):
@@ -2265,7 +2270,7 @@ def main():
     # abort rather than silently rotating).
     manifest = load_manifest(auto_yes=args.yes)
     _warn_missing_recommended_protocols(manifest['users'])
-    _warn_missing_per_user_utls_fingerprint(manifest['users'], manifest.get('defaults', {}))
+    _check_per_user_utls_fingerprint(manifest['users'])
     if args.validate:
         validate(manifest)
         # Also validate server config (in-memory), reusing compute_server_plan.
