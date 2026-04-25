@@ -250,16 +250,6 @@
       "default": "⚡ Fastest"
     },
     {
-      "tag": "🏠 Home Egress",
-      "type": "selector",
-      "outbounds": [
-        "🏠 Home",
-        "🔀 Proxy",
-        "➡️ Direct"
-      ],
-      "default": "🏠 Home"
-    },
-    {
       "tag": "🌍 Default",
       "type": "selector",
       "outbounds": [
@@ -270,11 +260,21 @@
       "default": "🔀 Proxy"
     },
     {
+      "tag": "🏠 Home Egress",
+      "type": "selector",
+      "outbounds": [
+        "🌍 Default",
+        "🏠 Home",
+        "➡️ Direct"
+      ],
+      "default": "🏠 Home"
+    },
+    {
       "tag": "🔒 Trusted",
       "type": "selector",
       "outbounds": [
         "🔀 Proxy",
-        "➡️ Direct"
+        "🌍 Default"
       ],
       "default": "🔀 Proxy"
     },
