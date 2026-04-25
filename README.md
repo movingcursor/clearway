@@ -20,7 +20,9 @@ the in-app urltest selector routes traffic over whichever one is fastest
 right now. Per-user PSKs / UUIDs, per-user uTLS fingerprint randomization,
 optional per-user ShadowTLS SNI, optional WireGuard "home egress" so a
 traveller's home-country traffic exits from a specific home network, all
-expressed in YAML you edit by hand.
+expressed in YAML you edit by hand. DNS-level threat-feed and ad blocking
+via [Hagezi](https://github.com/hagezi/dns-blocklists) lists is on by
+default.
 
 ## Status
 
@@ -186,9 +188,12 @@ Stands on the shoulders of:
   multiplexer this all runs on.
 - [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat),
   [runetfreedom/russia-v2ray-rules-dat](https://github.com/runetfreedom/russia-v2ray-rules-dat),
-  [chocolate4u/Iran-sing-box-rules](https://github.com/chocolate4u/Iran-sing-box-rules),
-  [razaxq/dns-blocklists-sing-box](https://github.com/razaxq/dns-blocklists-sing-box) —
+  [chocolate4u/Iran-sing-box-rules](https://github.com/chocolate4u/Iran-sing-box-rules) —
   the country-specific rule-sets the renderer wires in by default.
+- [Hagezi](https://github.com/hagezi/dns-blocklists) — the DNS
+  threat-intelligence (TIF) and pro-adblock lists wired into the default
+  DNS reject rule, served as sing-box rule-sets via
+  [razaxq/dns-blocklists-sing-box](https://github.com/razaxq/dns-blocklists-sing-box).
 - [MetaCubeX/metacubexd](https://github.com/MetaCubeX/metacubexd) — the
   clash-api dashboard the Windows installer wires up.
 - [NSSM](https://nssm.cc/), [WireGuard / wintun](https://www.wintun.net/) —
