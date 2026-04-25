@@ -3,7 +3,7 @@
 # manifest:
 #   - a traveller with every protocol + home_wg + admin   (test_alice)
 #   - a single-country resident with two protocols        (test_bob)
-#   - a multi-country traveller without home_wg           (test_carol)
+#   - a multi-country traveller without home_wg           (test_dave)
 # All credentials are fixed (no random gen) so the rendered output is
 # deterministic and the goldens stay stable across reruns.
 defaults:
@@ -53,7 +53,7 @@ users:
       - { type: mobile,  name: iphone }
 
   # Two-country traveller without home_wg. Restricted defaults to 🌍 Default.
-  test_carol:
+  test_dave:
     countries: [ru, ir]
     protocols: [reality, hysteria2]
     utls_fingerprint: firefox

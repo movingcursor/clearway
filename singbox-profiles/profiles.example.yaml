@@ -6,7 +6,7 @@
 # Three archetypes are shown here, each exercising a different render path:
 #   - alice : admin traveller, every protocol, multi-country, home_wg egress
 #   - bob   : single-country resident, two protocols, no home_wg
-#   - carol : single-country resident with a per-user ShadowTLS SNI override
+#   - dave : single-country resident with a per-user ShadowTLS SNI override
 
 defaults:
   # uTLS fingerprint applied to every TLS handshake unless a user overrides
@@ -95,11 +95,11 @@ users:
       - { type: mobile, name: iphone }
 
   # ────────────────────────────────────────────────────────────────────
-  # carol — single-country resident on Windows + mobile. Demonstrates
+  # dave — single-country resident on Windows + mobile. Demonstrates
   # the per-user ShadowTLS SNI override (useful when a pool member becomes
   # unreliable, or to pin a user to a specific cover for debugging).
   # ────────────────────────────────────────────────────────────────────
-  carol:
+  dave:
     countries: [ru]
     protocols: [reality, shadowtls]
     utls_fingerprint: firefox

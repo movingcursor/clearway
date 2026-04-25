@@ -70,7 +70,7 @@ pool-rotated one. Desktop users can stay on `defaults.shadowtls.sni_pool`
 `wildcard_sni: "authed"` server-side — the issue is client-side
 session-cache × SNI-mismatch, not server policy. The renderer already
 honours `users.<name>.shadowtls_sni` as an override; profiles.example.yaml's
-`carol` archetype demonstrates the pattern.
+`dave` archetype demonstrates the pattern.
 
 ---
 

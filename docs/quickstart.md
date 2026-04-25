@@ -118,7 +118,7 @@ Open `profiles.yaml` and edit:
 - `defaults.hysteria2.sni` — must match the hy2 cert CN/SAN above.
 - (Optional) `defaults.proxy_server_ips` — only set if you have multiple
   public IPs / multiple servers. Single-VPS deployments leave it empty.
-- `users.*` — replace `alice`/`bob`/`carol` with your actual users. See
+- `users.*` — replace `alice`/`bob`/`dave` with your actual users. See
   the inline comments for what each archetype demonstrates.
 
 For users with `home:` blocks, drop a `home_wg/<user>-<device>.conf`

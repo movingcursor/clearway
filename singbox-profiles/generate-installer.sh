@@ -17,7 +17,7 @@
 # Example:
 #   generate-installer.sh alice singbox-windows.json   "$WEBHOOK"
 #   generate-installer.sh bob   singbox-windows.json
-#   generate-installer.sh carol singbox-windows.json
+#   generate-installer.sh dave singbox-windows.json
 
 set -euo pipefail
 

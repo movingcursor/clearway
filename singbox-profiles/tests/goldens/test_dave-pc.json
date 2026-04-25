@@ -104,7 +104,7 @@
       "tag": "🚀 Hysteria2",
       "server": "198.51.100.10",
       "server_port": 443,
-      "password": "TEST_HY2_PW_CAROL_____",
+      "password": "TEST_HY2_PW_DAVE_____",
       "up_mbps": 30,
       "down_mbps": 200,
       "obfs": {
@@ -349,7 +349,7 @@
     },
     "clash_api": {
       "external_controller": "127.0.0.1:9090",
-      "secret": "testclashcarolpc0000000000000000000000000000000",
+      "secret": "testclashdavepc0000000000000000000000000000000",
       "external_ui": "metacubexd",
       "external_ui_download_url": "https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip",
       "external_ui_download_detour": "⚡ Fastest"

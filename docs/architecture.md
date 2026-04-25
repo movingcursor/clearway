@@ -289,7 +289,7 @@ The fixtures cover the combinations the renderer actually branches on:
 
 - `test_alice` — full traveller (every protocol, home_wg, multi-country, admin)
 - `test_bob` — single-country resident (subset of protocols, no home)
-- `test_carol` — multi-country traveller without home_wg
+- `test_dave` — multi-country traveller without home_wg
 
 Run as `python3 tests/test_render.py` (assert) or `--update` (regenerate
 goldens). When you intentionally change rendered output, regenerate and
