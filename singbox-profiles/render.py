@@ -228,6 +228,25 @@ COUNTRY = _load_countries()
 TLS_PROTOCOLS = {'reality', 'ws_cdn', 'shadowtls'}
 
 
+def _warn_unused_utls_fingerprint(users):
+    """Inverse of the hard check: warn (don't error) when a user sets
+    `utls_fingerprint` but has no TLS-bearing protocol. The field is
+    harmless but dead — uTLS doesn't apply to Hysteria2 (QUIC), so the
+    setting won't shape any ClientHello. Likely an editing mistake or
+    leftover from a removed protocol."""
+    for name, user in users.items():
+        if name.startswith('_'):
+            continue
+        if not user.get('utls_fingerprint'):
+            continue
+        if set(user.get('protocols', [])) & TLS_PROTOCOLS:
+            continue
+        print(f"warning: user {name!r} has 'utls_fingerprint' set but no "
+              f"TLS-bearing protocol — field is unused (uTLS doesn't apply "
+              f"to hysteria2)",
+              file=sys.stderr)
+
+
 def _check_per_user_utls_fingerprint(users):
     """Hard check: a user with any TLS-bearing protocol must have a
     per-user `utls_fingerprint`. Without it, all such users collapse to
@@ -2270,6 +2289,7 @@ def main():
     # abort rather than silently rotating).
     manifest = load_manifest(auto_yes=args.yes)
     _warn_missing_recommended_protocols(manifest['users'])
+    _warn_unused_utls_fingerprint(manifest['users'])
     _check_per_user_utls_fingerprint(manifest['users'])
     if args.validate:
         validate(manifest)
