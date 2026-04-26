@@ -76,7 +76,11 @@ if ! "${SINGBOX_PROFILES_DIR}/render.py" --validate >/dev/null 2>&1; then
 fi
 
 # Generate into TEMP so a failed openssl doesn't corrupt the live files.
-TMPDIR_ROT=$(mktemp -d)
+# Force umask 077 around mktemp so the dir is unambiguously 0700 even on
+# systems where the inherited umask is looser — the freshly-generated key
+# lives in here for a few hundred ms before being chmod'd and atomic-mv'd
+# into place, and we don't want it group/world-readable in that window.
+TMPDIR_ROT=$(umask 077 && mktemp -d)
 trap 'rm -rf "${TMPDIR_ROT}"' EXIT
 NEW_CERT="${TMPDIR_ROT}/hy2.crt"
 NEW_KEY="${TMPDIR_ROT}/hy2.key"
