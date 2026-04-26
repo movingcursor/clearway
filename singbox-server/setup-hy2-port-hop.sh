@@ -28,6 +28,18 @@ HY2_LISTEN_IP="${HY2_LISTEN_IP:-10.0.0.220}"
 HY2_LISTEN_PORT="${HY2_LISTEN_PORT:-443}"
 HY2_PORT_RANGE="${HY2_PORT_RANGE:-20000:30000}"
 
+# Validate the range up-front: iptables would also reject malformed input,
+# but its error messages are cryptic and a typo here (e.g. swapped delimiter
+# or missing upper bound) would otherwise only surface mid-rule. Both ports
+# must be 1..65535 and low <= high.
+if ! [[ ${HY2_PORT_RANGE} =~ ^([0-9]+):([0-9]+)$ ]] \
+   || (( BASH_REMATCH[1] < 1 || BASH_REMATCH[1] > 65535 )) \
+   || (( BASH_REMATCH[2] < 1 || BASH_REMATCH[2] > 65535 )) \
+   || (( BASH_REMATCH[1] > BASH_REMATCH[2] )); then
+    echo "invalid HY2_PORT_RANGE='${HY2_PORT_RANGE}' (expected low:high, both 1..65535, low<=high)" >&2
+    exit 1
+fi
+
 if ! command -v iptables >/dev/null 2>&1; then
     echo "iptables not found" >&2
     exit 1
