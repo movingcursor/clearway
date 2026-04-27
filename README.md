@@ -15,14 +15,28 @@ installer that keeps everything auto-updated.
 
 The default protocol mix — VLESS+Reality on TCP/443, Hysteria2 on UDP/443,
 ShadowTLS+Shadowsocks-2022 on TCP/8443, VLESS-over-WebSocket fronted by
-Cloudflare on TCP/443 — gives clients four orthogonal paths through DPI;
-the in-app urltest selector routes traffic over whichever one is fastest
-right now. Per-user PSKs / UUIDs, per-user uTLS fingerprint randomization,
-optional per-user ShadowTLS SNI, optional WireGuard "home egress" so a
-traveller's home-country traffic exits from a specific home network, all
-expressed in YAML you edit by hand. DNS-level threat-feed and ad blocking
-via [Hagezi](https://github.com/hagezi/dns-blocklists) lists is on by
-default.
+Cloudflare on TCP/443, plus optional AmneziaWG on UDP/51820 — gives
+clients five orthogonal paths through DPI. The in-app **selector** picks
+the protocol best suited to the user's region as the default; no
+auto-switching probe runs in the steady state (the constant probing was
+itself a fingerprint), so the user manually flips selectors in the
+dashboard if their default breaks. AmneziaWG runs in the separate
+[Amnezia VPN](https://amnezia.org/) app on the client side as a parallel
+resilience tunnel for RU/IR users — see [`docs/architecture.md`](docs/architecture.md).
+
+Per-user PSKs / UUIDs, per-user uTLS fingerprint randomization, optional
+per-user ShadowTLS SNI, optional WireGuard "home egress" so a traveller's
+home-country traffic exits from a specific home network, all expressed
+in YAML you edit by hand. DNS-level threat-feed and ad blocking via
+[Hagezi](https://github.com/hagezi/dns-blocklists) lists is on by
+default. **The recommended client is the official sing-box app**
+([Android](https://play.google.com/store/apps/details?id=io.nekohasekai.sfa) /
+[iOS $3.99](https://apps.apple.com/us/app/sing-box-vt/id6673731168) /
+[Android sideload](https://github.com/SagerNet/sing-box-for-android/releases)
+/ [Windows via NSSM-managed service](docs/quickstart.md)) — clearway's
+generated profile uses official-sing-box-only features (the no-probe
+selector design specifically) that Hiddify-Next overrides with its own
+auto-switcher.
 
 ## Status
 
@@ -42,23 +56,32 @@ scripts that don't generalize.
 clearway/
 ├── singbox-profiles/         renderer half
 │   ├── render.py             reads profiles.yaml + .secrets.yaml + home_wg/
-│   │                         emits per-device client configs and the server
-│   │                         config in one pass; 2h rotation grace built in
+│   │                         emits per-device client configs (singbox + AWG),
+│   │                         the singbox + awg-server configs, all in one
+│   │                         pass; 2h rotation grace built in for sing-box
+│   │                         protocols
 │   ├── profiles.example.yaml three documented user archetypes
 │   ├── home_wg/              drop user-device WireGuard .conf files here
-│   ├── templates/            singbox-server.template.jsonc + the Windows
-│   │                         installer template
-│   ├── tests/                stdlib-only golden-file tests
+│   ├── templates/            singbox-server.template.jsonc + awg-{client,
+│   │                         server}.conf.template + Windows installer
+│   ├── tests/                stdlib-only golden-file tests + X25519 unit test
 │   ├── generate-installer.sh per-user Windows install-singbox.ps1 builder
 │   ├── rotate-short-ids.sh   monthly Reality short_id rotation
 │   └── rotate-reality-key.sh quarterly Reality keypair rotation
-└── singbox-server/           server half
-    ├── compose.yaml          hardened (cap-drop ALL, read-only rootfs,
-    │                         no-new-privileges, mem/cpu limits, digest pin)
-    ├── safe-restart.sh       sing-box check before reconcile; restart on
-    │                         bind-mount inode change
-    ├── rotate-hy2-cert.sh    yearly hy2 self-signed cert rotation
-    └── bump-singbox-image.sh controlled image-digest upgrade
+├── singbox-server/           server half — sing-box-native protocols
+│   ├── compose.yaml          hardened (cap-drop ALL, read-only rootfs,
+│   │                         no-new-privileges, mem/cpu limits, digest pin)
+│   ├── safe-restart.sh       sing-box check before reconcile; restart on
+│   │                         bind-mount inode change
+│   ├── rotate-hy2-cert.sh    yearly hy2 self-signed cert rotation
+│   └── bump-singbox-image.sh controlled image-digest upgrade
+└── awg-server/               server half — AmneziaWG (opt-in profile)
+    ├── compose.yaml          amneziavpn/amneziawg-go pinned by digest;
+    │                         NET_ADMIN unavoidable for userspace WG, balanced
+    │                         by read-only rootfs, narrow port exposure, etc.
+    ├── safe-restart.sh       structural awk validation + bind-mount inode fix
+    ├── rotate-awg-params.sh  quarterly Jc/Jmin/Jmax/S1/S2/H1-H4 rotation
+    └── bump-image.sh         controlled image-digest upgrade
 ```
 
 ## Quickstart
@@ -131,22 +154,39 @@ Goldens are committed; CI runs the same harness on every push (Stage 5).
 
 Set in a repo-level `.env` (gitignored — see `.gitignore`).
 
-## Why these four protocols (DPI signature families)
+## Why these five protocols (DPI signature families)
 
-The four-protocol mix isn't an arbitrary "more is better" stack — each
+The protocol mix isn't an arbitrary "more is better" stack — each
 protocol covers a *different* DPI signature family. A national firewall
 that classifies and blocks one family typically can't apply the same
-classifier to the others without breaking unrelated traffic, so the
-client's urltest just switches lanes.
+classifier to the others without breaking unrelated traffic, so the user
+manually switches lanes in the dashboard when one shape gets flagged.
 
-| Family                              | Protocol             | What the wire looks like                                            |
-| ----------------------------------- | -------------------- | ------------------------------------------------------------------- |
-| TLS-mimic-no-tunnel                 | VLESS+Reality        | Real TLS handshake stolen from a public site; no SNI faking         |
-| CDN-fronted WebSocket               | VLESS-over-WS via CF | TLS to Cloudflare's edge with ECH, WS upgrade, VLESS inside         |
-| Handshake-with-passthrough          | ShadowTLS+SS-2022    | Real TLS handshake to a cover SNI, then encrypted payload over TCP  |
-| Obfuscated QUIC                     | Hysteria2 (salamander) | Random-looking UDP payload, no parseable QUIC Initial             |
+| Family                          | Protocol                | What the wire looks like                                                      |
+| ------------------------------- | ----------------------- | ----------------------------------------------------------------------------- |
+| TLS-mimic-no-tunnel             | VLESS+Reality           | Real TLS handshake stolen from a public site; no SNI faking                   |
+| CDN-fronted WebSocket           | VLESS-over-WS via CF    | TLS to Cloudflare's edge with ECH, WS upgrade, VLESS inside                   |
+| Handshake-with-passthrough      | ShadowTLS+SS-2022       | Real TLS handshake to a cover SNI, then encrypted payload over TCP            |
+| Obfuscated QUIC                 | Hysteria2 (salamander)  | Random-looking UDP payload, no parseable QUIC Initial                         |
+| Obfuscated WG handshake         | **AmneziaWG**           | UDP that looks like nothing — junk packets pre-handshake (Jc/Jmin/Jmax),      |
+|                                 |                         | padded init/response (S1/S2), custom magic headers (H1-H4) replacing WG's     |
 
-Adding a fifth protocol that falls into one of these families (e.g.
+**Shared UDP-class risk worth flagging:** AmneziaWG and Hysteria2 both
+die under blanket UDP marking. The protocol-specific classifiers that
+censors actually deploy are uncorrelated, but the IP-level UDP throttling
+RU TSPU and Iranian ISPs have demonstrated isn't — when both UDP
+protocols go dark together, fall back to one of the three TCP shapes.
+
+AmneziaWG's role is specifically the threat model RU users actually face:
+TSPU's TCP-freeze attack on suspicious foreign IPs has degraded Reality
+through late 2025; CF CIDR whitelisting has degraded VLESS-over-WS in
+parallel. AWG is the protocol Russians are actually deploying — Amnezia's
+Banzaev confirms the operates-stably-with-periodic-signature-blocks
+model in the Jan 2026 TechRadar interview. AWG runs in a *separate*
+[Amnezia VPN](https://amnezia.org/) app rather than the sing-box profile;
+the two-app split is documented in [architecture.md](docs/architecture.md).
+
+Adding a sixth protocol that falls into one of these families (e.g.
 TUIC v5 — also obfuscated QUIC, same family as hy2) doesn't add real
 resilience — a classifier that flags one will flag the other. We've
 deliberately *not* added several otherwise-popular protocols on this
