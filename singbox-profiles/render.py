@@ -1189,6 +1189,24 @@ def frag_route(user, device, defaults):
     }}
 
 
+def _mobile_url_block(user, secret):
+    """
+    Format the per-device remote-profile URL block for the mobile section.
+    Single mobile device → one URL in a fenced code block (matches the
+    pre-rename look). Multiple mobile devices → per-device labelled URLs.
+    Each URL points at the device's `singbox-<name>.json` (the post-rename
+    naming convention).
+    """
+    mobile_devices = [d for d in user.get('devices', []) if d['type'] == 'mobile']
+    if len(mobile_devices) == 1:
+        d = mobile_devices[0]
+        return f"```\nhttps://{PROFILE_HOST}/p/{secret}/{device_filename(user, d)}\n```"
+    lines = []
+    for d in mobile_devices:
+        lines.append(f"- **{d['name']}** — `https://{PROFILE_HOST}/p/{secret}/{device_filename(user, d)}`")
+    return '\n'.join(lines)
+
+
 def render_user_readme(uname, user, defaults):
     """
     Generate a ready-to-send Markdown README for this user. Written from
@@ -1269,9 +1287,7 @@ profile is built around (see Troubleshooting below).
 
 **Recommended — remote profile URL (auto-updates):**
 
-```
-https://{PROFILE_HOST}/p/{secret}/singbox-mobile.json
-```
+{_mobile_url_block(user, secret)}
 
 In the sing-box app: **Profiles** → **+** → **Type: Remote** → paste the URL → **Auto Update: 60 min** → **Save**.
 The app fetches the config, validates it, reloads live. On server-side changes the phone picks up the new config on its next poll.
@@ -1279,18 +1295,18 @@ The app fetches the config, validates it, reloads live. On server-side changes t
 The URL itself is the credential (128-bit random path). Treat like any other sensitive string.
 
 **Fallback methods** (if the URL is unreachable from your local network):
-- **Local file import** — get `singbox-mobile.json` from admin via AirDrop / iCloud / Google Drive / email, then in the app: Profiles → + → Import from file.
+- **Local file import** — get the `.json` from admin via AirDrop / iCloud / Google Drive / email, then in the app: Profiles → + → Import from file.
 - **URL import (one-off)** — host the file on any reachable URL, then Profiles → + → Import from URL.
 """ if has_mobile else ''
 
-    # Windows section
+    # Windows section. The installer fetches one specific config; for users
+    # with multiple windows devices that's the first one in profiles.yaml
+    # order (matches apply_plan's installer regen). Others would need their
+    # own installer URL — not yet supported, same gap as before the
+    # filename-rename.
     if has_windows:
         win_dev = next(d for d in devices if d['type'] == 'windows')
-        win_filename = 'singbox-windows.json'
-        # If multiple windows devices, fall back to per-device filename
-        win_devices = [d for d in devices if d['type'] == 'windows']
-        if len(win_devices) > 1:
-            win_filename = f"singbox-windows-{win_dev['name']}.json"
+        win_filename = device_filename(user, win_dev)
 
         windows_section = f"""## Windows setup
 
@@ -1544,14 +1560,13 @@ def compose(user, device, defaults):
 
 def device_filename(user, device):
     """
-    Compute the per-device filename.
-    - Single device of that type in user's list → singbox-<type>.json
-    - Multiple devices of the same type → singbox-<type>-<name>.json
+    Compute the per-device filename: always `singbox-<name>.json`. Type info
+    stays in the YAML (drives README section selection + Windows-installer
+    wiring) but doesn't appear in the filename — encoding it twice gave us
+    a conditional naming rule and a hardcoded URL in the README that only
+    worked for single-device-of-type users. One name per device, always.
     """
-    same_type = [d for d in user['devices'] if d['type'] == device['type']]
-    if len(same_type) == 1:
-        return f"singbox-{device['type']}.json"
-    return f"singbox-{device['type']}-{device['name']}.json"
+    return f"singbox-{device['name']}.json"
 
 
 def user_output_dir(user):
@@ -1610,7 +1625,7 @@ def compute_client_plan(manifest):
         # Per-user AWG client config — only when the user has 'awg' in
         # protocols. Lives next to the sing-box JSONs so the served-URL tree
         # at /p/<secret>/awg.conf can be fetched by the Amnezia VPN app the
-        # same way the sing-box app fetches /p/<secret>/singbox-mobile.json.
+        # same way the sing-box app fetches /p/<secret>/singbox-<device>.json.
         # Filename intentionally `awg.conf` (not `awg-mobile.conf`) — the
         # config is platform-agnostic and a single user has at most one AWG
         # identity (one [Peer] on the server side per user, not per device).
@@ -1738,7 +1753,7 @@ def apply_plan(plan, manifest):
     # if secrets.txt wasn't yet updated.
     lines = [
         '# user -> path-secret mapping for singbox-profiles remote-profile URLs',
-        f'# Full URL: https://{PROFILE_HOST}/p/<secret>/singbox-mobile.json',
+        f'# Full URL: https://{PROFILE_HOST}/p/<secret>/singbox-<device-name>.json',
         f'# Maintained by render.py — edit profiles.yaml instead.',
         '',
     ]
@@ -1748,18 +1763,16 @@ def apply_plan(plan, manifest):
     print(f'  wrote {SECRETS_FILE.relative_to(ROOT)}')
 
     # Refresh installers for every windows device. generate-installer.sh
-    # takes a config filename; for now we drive it for the primary windows
-    # device per user (singbox-windows.json). Multiple-windows-per-user would
-    # need installer-per-device URLs — not yet supported.
+    # takes a config filename; we drive it for the primary windows device
+    # per user (the first one in profiles.yaml order). Multiple-windows-
+    # per-user still emits one installer; the others would need their own
+    # installer URL — not yet supported. Same gap as before the post-AWG
+    # filename rename, just renamed.
     for uname, user in manifest['users'].items():
         win_devs = [d for d in user['devices'] if d['type'] == 'windows']
         if not win_devs:
             continue
-        # Pick the default singbox-windows.json (single-windows case). Multi
-        # windows: fall back to first device's filename.
-        fname = 'singbox-windows.json'
-        if not (user_output_dir(user) / fname).exists():
-            fname = device_filename(user, win_devs[0])
+        fname = device_filename(user, win_devs[0])
         webhook = user.get('notify_webhook', '')
         args = [str(GENERATE_INSTALLER), uname, fname]
         if webhook:

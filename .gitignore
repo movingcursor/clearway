@@ -26,6 +26,7 @@ awg-server/config/*.conf.prev
 
 # Backups created by the rotation scripts.
 singbox-profiles/.secrets.yaml.bak-*
+singbox-profiles/profiles.yaml.bak-*
 
 # Repo-level overrides (PROFILE_HOST, VNIC_SECONDARY_IP, PUID/PGID).
 .env
