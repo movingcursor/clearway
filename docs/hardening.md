@@ -27,16 +27,37 @@ public IP at this stack and start serving real users.
   `sudo fail2ban-client status sshd`.
 - [ ] **Cloud-provider firewall.** The container hardening doesn't help
   if you accidentally leave random ports open at the cloud-network layer.
-  - **Oracle Cloud:** edit the VCN's security list / NSG so only
-    `22/tcp` (SSH), `443/tcp` (Reality + ws-cf), `443/udp` (hy2),
-    `8443/tcp` (ShadowTLS), and (if AWG enabled) `51820/udp` (AWG) are
-    reachable from `0.0.0.0/0`. Lock SSH to your home IP if practical.
+  The port set depends on which optional features you've enabled —
+  baseline is the four sing-box-native protocols, additions stack on top:
+
+  | Port | Proto | What | When it's needed |
+  |---|---|---|---|
+  | `22` | tcp | SSH | always (lock to admin IPs) |
+  | `443` | tcp | Reality | always |
+  | `443` | udp | hy2 (single-port mode) | always (also keep open in port-hopping mode as fallback for older clients) |
+  | `8443` | tcp | ShadowTLS | always |
+  | `<low>:<high>` | udp | hy2 port-hopping range | if `defaults.hy2.server_ports` is set in `profiles.yaml` (see [hazards.md #10](hazards.md#10-gfw-marks-ips-sending-sustained-udp443-volume--drops-all-incoming-udp-for-1h)) |
+  | `51820` | udp | AmneziaWG | if any user has `awg` in protocols (see quickstart §9) |
+
+  ws-cf doesn't appear here directly — it lives behind your reverse
+  proxy on `443/tcp` (Cloudflare → reverse proxy → docker0:10001
+  internally). Port `10001` is bound to the docker0 bridge IP only and
+  must not be reachable on the public IP.
+
+  Multi-VNIC deployments: hy2 + Reality + AWG bind to `${VNIC_SECONDARY_IP}`,
+  so those rules go in the secondary VNIC's NSG (or its subnet's
+  security list). SSH + ShadowTLS + the reverse proxy bind on the
+  primary VNIC.
+
+  - **Oracle Cloud:** edit the VCN's security list / NSG attached to
+    each VNIC. Lock SSH to your home IP if practical.
   - **AWS:** same, via the VPC Security Group attached to the instance.
   - **GCP:** same, via firewall rules attached to the VPC.
   - **Hetzner / Scaleway / DO / etc.:** equivalent firewall panel in the
     web console.
 - [ ] **Host firewall** as defense-in-depth (separate from cloud-side).
-  `ufw` on Debian/Ubuntu:
+  `ufw` on Debian/Ubuntu — uncomment the lines that match the features
+  you've enabled (baseline + opt-ins; mirrors the cloud-firewall table):
   ```
   sudo ufw default deny incoming
   sudo ufw default allow outgoing
@@ -44,6 +65,8 @@ public IP at this stack and start serving real users.
   sudo ufw allow 443/tcp
   sudo ufw allow 443/udp
   sudo ufw allow 8443/tcp
+  # If hy2 port-hopping is enabled (defaults.hy2.server_ports set):
+  sudo ufw allow 20000:30000/udp
   # If AWG is enabled (any user has 'awg' in profiles.yaml protocols):
   sudo ufw allow 51820/udp
   sudo ufw enable
