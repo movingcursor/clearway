@@ -1670,13 +1670,26 @@ def client_plan_has_changes(plan):
     return any(a[2] in ('modify', 'create', 'delete') for a in plan)
 
 
+def _short_path(path):
+    """Display path as repo-relative when possible, falling back to absolute.
+    The awg-server stub lives at <repo>/awg-server/config/awg0.conf, outside
+    ROOT (which is singbox-profiles/), so a strict relative_to(ROOT) raises."""
+    try:
+        return path.relative_to(ROOT)
+    except ValueError:
+        try:
+            return path.relative_to(ROOT.parent)
+        except ValueError:
+            return path
+
+
 def print_client_summary(plan):
     print('── Client plan ──────────────────────────────────────────────')
     if not plan:
         print('  (nothing)')
         return
     for path, _, action, uname in plan:
-        print(f'  [{action:9}] {uname:8} {path.relative_to(ROOT)}')
+        print(f'  [{action:9}] {uname:12} {_short_path(path)}')
 
 
 def print_client_diffs(plan):
@@ -1684,9 +1697,9 @@ def print_client_diffs(plan):
         if action == 'modify':
             print(unified_diff(path.read_text(), text, f'a/{path.name}', f'b/{path.name}'))
         elif action == 'create':
-            print(f'── new file: {path.relative_to(ROOT)} ({len(text.splitlines())} lines)')
+            print(f'── new file: {_short_path(path)} ({len(text.splitlines())} lines)')
         elif action == 'delete':
-            print(f'── will delete: {path.relative_to(ROOT)}')
+            print(f'── will delete: {_short_path(path)}')
 
 
 def render_all(manifest, dry_run=False, auto_yes=False):
@@ -1715,10 +1728,10 @@ def apply_plan(plan, manifest):
             if path.exists():
                 shutil.copy2(path, path.with_suffix(path.suffix + '.prev'))
             path.write_text(text)
-            print(f'  wrote {path.relative_to(ROOT)}')
+            print(f'  wrote {_short_path(path)}')
         elif action == 'delete':
             path.unlink()
-            print(f'  deleted {path.relative_to(ROOT)}')
+            print(f'  deleted {_short_path(path)}')
 
     # Refresh secrets.txt FIRST — generate-installer.sh reads this file to
     # look up each user's URL secret, so a new user's installer would fail
@@ -2237,7 +2250,6 @@ def _render_awg_server_config(manifest, awg_state):
 
     tpl = AWG_SERVER_TEMPLATE.read_text()
     subs = {
-        '__SERVER_ADDRESS__':         f'{server_address}/24',
         '__AWG_PORT__':               str(awg_block['port']),
         '__AWG_SERVER_PRIVATE_KEY__': awg_block['server_private_key'],
         '__AWG_JC__':                 str(awg_block['Jc']),

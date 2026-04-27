@@ -1,6 +1,10 @@
-# wg-quick + AmneziaWG fields, server perspective. Rendered by render.py
-# from .secrets.yaml's awg block + every user with 'awg' in protocols.
-# Consumed by amneziavpn/amneziawg-go inside the awg-server container.
+# AmneziaWG server config. Strict `awg setconf`-compatible format —
+# carries only the fields the loader accepts (PrivateKey, ListenPort,
+# AWG params, Peer keys/AllowedIPs). Address / MTU / PostUp / PostDown
+# are wg-quick concepts that `awg setconf` rejects with "Line
+# unrecognized"; whatever entrypoint loads this file is responsible for
+# `ip addr add <subnet>.1/<prefix> dev <iface>`, MTU, and iptables
+# MASQUERADE / FORWARD setup. See docs/architecture.md.
 #
 # Jc/Jmin/Jmax/S1/S2/H1-H4 must match every client EXACTLY — one
 # mismatched param silently times out the handshake (by AWG design,
@@ -8,10 +12,8 @@
 # which updates this server config and every per-user awg.conf
 # atomically and re-distributes them to clients on their next poll.
 [Interface]
-Address = __SERVER_ADDRESS__
 ListenPort = __AWG_PORT__
 PrivateKey = __AWG_SERVER_PRIVATE_KEY__
-MTU = 1420
 Jc = __AWG_JC__
 Jmin = __AWG_JMIN__
 Jmax = __AWG_JMAX__
@@ -21,10 +23,5 @@ H1 = __AWG_H1__
 H2 = __AWG_H2__
 H3 = __AWG_H3__
 H4 = __AWG_H4__
-# `eth+` matches any ethernet interface inside the container's netns —
-# robust against Docker network-name churn. MASQUERADE on egress so AWG
-# clients reach the wider internet via this container's outbound IP.
-PostUp = iptables -t nat -A POSTROUTING -o eth+ -j MASQUERADE
-PostDown = iptables -t nat -D POSTROUTING -o eth+ -j MASQUERADE
 
 __PEERS__
