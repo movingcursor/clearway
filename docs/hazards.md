@@ -317,16 +317,18 @@ whole point of these params is to defeat active probing — failed
 handshakes look identical to passive scanner traffic). There's no error
 to surface; the params just don't validate.
 
-**Fix.** After every rotation, every AWG client must refetch their
-`.conf`. The `awg.conf` URL in the per-user `srv/p/<secret>/` directory
-gets re-rendered atomically with the server config; clients can curl/
-re-import. **Unlike sing-box's hourly remote-profile poll, the Amnezia
-VPN app does NOT auto-refresh `.conf` files** — re-import is a manual
-user action. Send a notification on rotation if you have one wired.
+**Fix.** After every rotation, every AWG client must refetch its
+`.conf`. The per-device `awg-<dev>.conf` URLs in the user's
+`srv/p/<secret>/` directory get re-rendered atomically with the server
+config; clients can curl / re-import. **Unlike sing-box's hourly
+remote-profile poll, the Amnezia VPN app does NOT auto-refresh `.conf`
+files** — re-import is a manual user action, once per device. Send a
+notification on rotation if you have one wired.
 
-If a single user is broken post-rotation, eyeball-diff their `awg.conf`
-against the server's `awg-server/config/awg0.conf`; the divergent line
-is the first place to look.
+If a single device is broken post-rotation, eyeball-diff its
+`awg-<dev>.conf` against the matching `[Peer]` block in the server's
+`awg-server/config/awg0.conf` (peer comments carry `# uname/dev_name`
+for fast lookup); the divergent line is the first place to look.
 
 ---
 
@@ -365,10 +367,10 @@ client-side NAT traversal; server-initiated keepalive is the bug.
 
 **Fix.** awg-server's [Peer] blocks emit `PersistentKeepalive = 0`
 server-side (render.py defaults this in `_render_awg_server_config`).
-Clients still drive keepalive themselves (the client-side `awg.conf`
-template emits `PersistentKeepalive = 25`) — that's what's actually
-needed for NAT traversal. The server-side zero just disables the
-buggy server-initiated stream.
+Clients still drive keepalive themselves (the client-side
+`awg-<dev>.conf` template emits `PersistentKeepalive = 25`) — that's
+what's actually needed for NAT traversal. The server-side zero just
+disables the buggy server-initiated stream.
 
 ---
 

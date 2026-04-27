@@ -2051,8 +2051,8 @@ def _autogen_missing(sfile, manifest):
 #   1. Validate that .secrets.yaml carries a complete `awg:` block when any
 #      user has 'awg' in protocols, and that each AWG user has a private key.
 #   2. Allocate stable per-user addresses from the configured subnet.
-#   3. Emit per-user `awg.conf` files into srv/p/<secret>/ via the wg-quick
-#      template at templates/awg-client.conf.template.
+#   3. Emit per-device `awg-<dev>.conf` files into srv/p/<secret>/ via the
+#      wg-quick template at templates/awg-client.conf.template.
 #   4. Emit a stub awg-server config (real content arrives in stage 2).
 # ---------------------------------------------------------------------------
 

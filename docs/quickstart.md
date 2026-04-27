@@ -253,12 +253,11 @@ cat /tmp/awg-server.pub   # paste under `awg.server_public_key`
 shred -u /tmp/awg-server.priv /tmp/awg-server.pub
 ```
 
-Per-user private keys (one per AWG-enabled user; the matching public key
-is computed at render time, no manual derivation needed):
-
-```sh
-wg genkey  # paste under .secrets.yaml users.<name>.awg_private_key
-```
+Per-device private keys are **auto-generated** by `render.py` on first run
+— one keypair per device under each AWG-enabled user. No manual `wg genkey`
+needed; the matching public key is computed at render time. Keys land at
+`.secrets.yaml.users.<name>.devices.<dev>.awg_private_key` and stay stable
+across runs.
 
 Obfuscation params (Jc/Jmin/Jmax/S1/S2/H1-H4 — they MUST match exactly
 between server and every client; one mismatched octet silently times out
@@ -287,7 +286,7 @@ PY
 
 ```yaml
 awg:
-  endpoint_host: vpn.<your-domain>     # public DNS / IP for client awg.conf
+  endpoint_host: vpn.<your-domain>     # public DNS / IP for client awg-<dev>.conf
   port: 51820                          # standard WG default
   subnet: 10.66.66.0/24                # avoid collision with home_wg ranges
   server_private_key: <from wg genkey above>
@@ -304,15 +303,17 @@ awg:
 ```
 
 Then add `awg` to the user's `protocols:` list in `profiles.yaml` and
-paste their `wg genkey` output under `users.<name>.awg_private_key` in
-`.secrets.yaml`. Re-render:
+re-render:
 
 ```sh
 ./render.py -y
 ```
 
-The renderer emits a per-user `awg.conf` into `srv/p/<secret>/awg.conf`
-and the server config into `awg-server/config/awg0.conf`.
+The renderer auto-generates a fresh keypair per device, allocates each
+device a /32 inside `awg.subnet` (hash-of-`<uname>/<dev_name>` so adding
+a device doesn't reshuffle the others), and emits one `awg-<dev>.conf`
+per device into `srv/p/<secret>/`. The server-side `awg-server/config/awg0.conf`
+gets a matching `[Peer]` block per device.
 
 ### Open UDP/51820 in the cloud + host firewall
 
@@ -353,15 +354,15 @@ on the server side:
       errors, no "address in use" on UDP/51820).
 - [ ] On the host: `ss -ulnp | grep 51820` shows the listener bound to
       `${VNIC_SECONDARY_IP}:51820`, owned by the docker-userland process.
-- [ ] An AWG-enabled user can fetch their `.conf`:
-      `curl -sk https://${PROFILE_HOST}/p/<secret>/awg.conf | head` returns
+- [ ] An AWG-enabled user can fetch a device's `.conf`:
+      `curl -sk https://${PROFILE_HOST}/p/<secret>/awg-<dev>.conf | head` returns
       a valid wg-quick config.
 
 Then on a test device:
 
 - [ ] Install Amnezia VPN (Android: github.com/amnezia-vpn/amnezia-client
       releases; iOS: App Store, app id 1600529900).
-- [ ] Import the per-user `awg.conf` URL.
+- [ ] Import the device's `awg-<dev>.conf` URL (each device imports its own).
 - [ ] Connect — the Amnezia app should show "connected" within ~2s. If it
       sits on "connecting" beyond ~5s, the handshake is failing — check
       that obfuscation params on the server match the per-user .conf

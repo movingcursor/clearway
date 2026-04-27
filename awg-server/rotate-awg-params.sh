@@ -10,11 +10,11 @@
 # a fresh obfuscation surface. Suggested cadence: quarterly cron, or
 # immediately after observing a regional throughput drop on AWG users.
 #
-# Cost: every AWG client must re-import their .conf after rotation.
-# render.py emits the new .conf into srv/p/<secret>/awg.conf; the per-user
-# README links to the URL so refetching is a single tap in the Amnezia VPN
-# app — but it's NOT zero-friction (unlike sing-box's hourly poll, the
-# Amnezia app doesn't auto-refresh imported .conf files).
+# Cost: every AWG device must re-import its .conf after rotation.
+# render.py emits one new .conf per device into srv/p/<secret>/awg-<dev>.conf;
+# the per-user README links each URL so refetching is a single tap in the
+# Amnezia VPN app per device — but it's NOT zero-friction (unlike sing-box's
+# hourly poll, the Amnezia app doesn't auto-refresh imported .conf files).
 #
 # Configuration:
 #   AWG_SERVER_DIR  Defaults to <script-dir>.
@@ -140,5 +140,5 @@ if ! "${AWG_SERVER_DIR}/safe-restart.sh"; then
   exit 1
 fi
 
-notify "🔄 AWG obfuscation params rotated. AWG users must re-import their .conf from \`https://\${PROFILE_HOST}/p/<secret>/awg.conf\` — old params will fail handshake until they do."
+notify "🔄 AWG obfuscation params rotated. Every AWG device must re-import its .conf from \`https://\${PROFILE_HOST}/p/<secret>/awg-<dev>.conf\` — old params will fail handshake until they do."
 echo "rotation complete; backup at ${SECRETS}.bak-${ts}"

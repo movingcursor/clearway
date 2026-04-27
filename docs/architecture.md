@@ -295,36 +295,40 @@ See [hardening.md](hardening.md).
 
 ## AWG subnet allocation
 
-Per-user IPv4 addresses inside `awg.subnet` are allocated deterministically
-by `_allocate_awg_addresses()` in render.py. The mechanics:
+Per-device IPv4 addresses inside `awg.subnet` are allocated deterministically
+by `_allocate_awg_addresses()` in render.py. AWG identities are per-device
+(each device of an AWG-enabled user gets its own keypair, /32 address, and
+[Peer] block on the server). The mechanics:
 
 1. The first host address (e.g. `10.66.66.1` for the default `/24`) is
    reserved for the awg-server's own [Interface] block. Never assigned to
-   a user, even via explicit pin.
+   any device, even via explicit pin.
 
-2. Pinned `awg_address` values from `profiles.yaml` are processed first.
-   Operator-set pins are validated (must parse as a CIDR, must lie inside
-   `awg.subnet`, must not collide with the server address or another
-   pin). Errors here exit before any rendering happens, so a bad pin
-   surfaces with a precise message rather than as a downstream "subnet
-   full" red herring.
+2. Pinned `awg_address` values from `profiles.yaml` (set per device under
+   `users.<n>.devices[].awg_address`) are processed first. Operator-set
+   pins are validated (must parse as a CIDR, must lie inside `awg.subnet`,
+   must not collide with the server address or another pin). Errors here
+   exit before any rendering happens, so a bad pin surfaces with a precise
+   message rather than as a downstream "subnet full" red herring.
 
-3. Hash-allocated for the rest. `int(sha256(uname).hexdigest(), 16) % N`
+3. Hash-allocated for the rest. `int(sha256("<uname>/<dev_name>").hexdigest(), 16) % N`
    picks a starting offset; linear-probe forward (modulo `N`, sorted by
-   uname for determinism) until a free slot. Fail loud if the subnet is
-   full.
+   `(uname, dev_name)` for determinism) until a free slot. Fail loud if
+   the subnet is full.
 
-Hash-from-username start means **adding a user mid-life doesn't reshuffle
-existing peers** — each is found at the same hash position on every run,
-which keeps `.conf` distributions stable across renders. Linear probe
-handles incidental collisions without resetting the whole allocation.
+Hashing on `<uname>/<dev_name>` means **adding a user or device mid-life
+doesn't reshuffle existing peers** — each is found at the same hash
+position on every run, which keeps `.conf` distributions stable across
+renders. Linear probe handles incidental collisions without resetting
+the whole allocation.
 
 `awg.subnet` defaults to `10.66.66.0/24` (254 host addrs, comfortable
-upper bound for the household scale clearway targets). The default value
-is chosen unconventional-enough to rarely collide with home networks;
-deployments where it *does* collide change it in `.secrets.yaml` and
-re-render. Subnet change is a flag-day for AWG users (every `.conf`
-becomes invalid; redistribute) — see [hazards.md #17](hazards.md#17-awg-subnet-collision-with-home_wg-ranges).
+upper bound for the household scale clearway targets — a 5-user household
+with 3 devices each fills 15 of the 254 slots). The default is chosen
+unconventional-enough to rarely collide with home networks; deployments
+where it *does* collide change it in `.secrets.yaml` and re-render.
+Subnet change is a flag-day for AWG devices (every `.conf` becomes
+invalid; redistribute) — see [hazards.md #17](hazards.md#17-awg-subnet-collision-with-home_wg-ranges).
 
 ## SS-2022 multi-user EIH
 
