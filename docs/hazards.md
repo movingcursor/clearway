@@ -303,6 +303,197 @@ The TCP/443 rule (Reality) stays — different protocol, different rule.
 
 ---
 
+## 11. AWG obfuscation params silently mismatch on rotation
+
+**Symptom.** After running `awg-server/rotate-awg-params.sh`, AWG clients
+who haven't re-imported their `.conf` get a hung "connecting" state in
+the Amnezia VPN app — no error, no log line on either side, just a dead
+handshake.
+
+**Why.** AWG's Jc/Jmin/Jmax/S1/S2/H1-H4 obfuscation params have to match
+EXACTLY between server and every client. Mismatch produces a packet
+shape the *other* side parses as random noise, by deliberate design (the
+whole point of these params is to defeat active probing — failed
+handshakes look identical to passive scanner traffic). There's no error
+to surface; the params just don't validate.
+
+**Fix.** After every rotation, every AWG client must refetch their
+`.conf`. The `awg.conf` URL in the per-user `srv/p/<secret>/` directory
+gets re-rendered atomically with the server config; clients can curl/
+re-import. **Unlike sing-box's hourly remote-profile poll, the Amnezia
+VPN app does NOT auto-refresh `.conf` files** — re-import is a manual
+user action. Send a notification on rotation if you have one wired.
+
+If a single user is broken post-rotation, eyeball-diff their `awg.conf`
+against the server's `awg-server/config/awg0.conf`; the divergent line
+is the first place to look.
+
+---
+
+## 12. amneziawg-go requires NET_ADMIN — incompatible with `cap_drop: [ALL]`
+
+**Symptom.** `cap_drop: [ALL]` on the awg-server container produces
+`operation not permitted` errors in the daemon log on TUN device
+creation, immediately after start.
+
+**Why.** Userspace WireGuard (every implementation, including
+amneziawg-go and wireguard-go) needs `NET_ADMIN` to create + configure
+the TUN device and to manage iptables NAT rules in PostUp/PostDown.
+There's no way to drop that and still have a functional daemon.
+
+**Fix.** awg-server's compose has `cap_add: [NET_ADMIN]` and *no*
+`cap_drop` — the cap is unavoidable. Compensate with read-only rootfs,
+image digest pin, narrow port exposure (UDP/51820 only via
+`${VNIC_SECONDARY_IP}`), `no-new-privileges`, mem/cpu ceilings. See
+[hardening.md § awg-server](hardening.md#awg-server-only-if-awg-enabled)
+for the full bundle. The residual risk surface is comparable to
+singbox-server's even though `cap_drop: [ALL]` isn't viable here.
+
+---
+
+## 13. WireGuard keepalive storm bug (sing-box #3981) — affects amneziawg-go too
+
+**Symptom.** Idle mobile clients drain battery faster than expected after
+connecting to AWG. `tcpdump` on the server shows the awg-server sending
+keepalive packets every 2-3 seconds to every connected peer.
+
+**Why.** sing-box and amneziawg-go share the same wireguard-go base. A
+known bug in wireguard-go (sing-box issue #3981 in tracker) makes the
+*server* side send keepalives whenever a peer is configured with any
+non-zero `PersistentKeepalive`. The intent of `PersistentKeepalive` is
+client-side NAT traversal; server-initiated keepalive is the bug.
+
+**Fix.** awg-server's [Peer] blocks emit `PersistentKeepalive = 0`
+server-side (render.py defaults this in `_render_awg_server_config`).
+Clients still drive keepalive themselves (the client-side `awg.conf`
+template emits `PersistentKeepalive = 25`) — that's what's actually
+needed for NAT traversal. The server-side zero just disables the
+buggy server-initiated stream.
+
+---
+
+## 14. Amnezia VPN app on iOS conflicts with active sing-box VPN profile
+
+**Symptom.** iOS user has both sing-box (for the four sing-box-native
+protocols) and Amnezia VPN (for AWG) installed. Connecting in one app
+silently disconnects the other; the user sees the previously-connected
+app's tunnel stop without warning.
+
+**Why.** iOS allows *exactly one* VPN profile to be active at a time —
+this is an OS-level constraint, not an app bug. Starting a second VPN
+implicitly deactivates the first. The apps don't surface this clearly;
+a user toggling between protocols may think both are running when only
+one ever is.
+
+**Fix.** Document the "tap to switch" flow in the per-user README (the
+AWG section appears only when the user has AWG enabled, and explicitly
+calls out the iOS one-VPN-at-a-time constraint). On Android both VPNs
+can coexist on different network namespaces — no manual switching
+needed there.
+
+---
+
+## 15. User imports profile into Hiddify-Next instead of official sing-box
+
+**Symptom.** A user sets up clearway following someone else's tutorial
+that recommended Hiddify-Next; everything appears to work but
+country-derived selector defaults don't take effect, and traffic flows
+through whatever Hiddify's own auto-switcher picks.
+
+**Why.** Hiddify-Next wraps any imported profile in its own urltest
+"Auto" group regardless of the profile's own selector configuration
+(Hiddify GitHub issues #552 / #1188, both open). The whole no-probe
+selector design clearway is built around — country-derived defaults +
+manual fallback, no steady-state probing — is overridden silently. The
+user thinks they're getting the design payoff (no probe fingerprint)
+when they're not.
+
+**Fix.** The per-user README explicitly directs users to the official
+sing-box client by platform with all three install paths (Play Store /
+App Store $3.99 / GitHub releases sideload + SHA256 verification) and
+a "**Do not use Hiddify-Next**" callout. Also called out in this
+repo's top-level README. If a user reports this symptom: confirm which
+client they installed, and have them switch.
+
+---
+
+## 16. Selector default unreachable, no fall-through (manual escape hatch)
+
+**Symptom.** User's country-derived default protocol stops working (e.g.
+Reality IPs blocked overnight in CN) and they're stuck on the broken
+default. Nothing on the device cycles through to a working alternative
+on its own.
+
+**Why.** This is the deliberate cost of dropping urltest. Pure selector
++ country default means "no auto-switch when default fails" — the user
+manually flips in the dashboard. See
+[architecture.md § Selector default and manual fallback](architecture.md#selector-default-and-manual-fallback)
+for the design rationale (the steady-state probing was itself a
+fingerprint).
+
+**Fix.** It's by design, not a bug — but the operator should make sure
+every user knows the manual-flip flow before this happens. The per-user
+README has the procedure as the first item in the "Manual fallback"
+section. If a user can't find it, screenshot the path: open the sing-box
+app → tap **🔀 Proxy** → pick a different protocol from the dropdown.
+
+If too many users hit this regularly, that's a signal to revisit the
+spike (route-rule on-error matching, watcher sidecar) when sing-box
+gains a primitive that supports it cleanly.
+
+---
+
+## 17. AWG subnet collision with home_wg ranges
+
+**Symptom.** A user with both `home:` (home-egress WireGuard) and
+`awg` enabled has overlapping IPs between their home WG range and the
+AWG subnet. Routing rules send traffic to one tunnel that should have
+gone to the other; pages time out unpredictably.
+
+**Why.** WireGuard tunnels are identified by their subnet. `home_wg/`
+ranges are operator-controlled per device (whatever the home router's
+WG side issues); `awg.subnet` in `.secrets.yaml` defaults to
+`10.66.66.0/24`. If the home network also uses `10.66.66.0/24`, both
+tunnels claim the same address space.
+
+**Fix.** Default `awg.subnet` to `10.66.66.0/24` (chosen because it's
+unconventional enough to not conflict with most home_wg defaults) and
+document the constraint. If you DO have a clash, change `awg.subnet`
+to a different RFC-1918 chunk you don't use elsewhere (e.g.
+`10.77.77.0/24`), re-render, redistribute every AWG client's `.conf`.
+
+---
+
+## 18. amneziavpn/amneziawg-go is amd64-only — ARM hosts can't pull
+
+**Symptom.** Operator on Oracle Cloud Ampere (ARM64) runs
+`docker compose --profile awg-server up -d awg-server` and gets
+`no matching manifest for linux/arm64/v8 in the manifest list entries`.
+
+**Why.** As of 2026-04, the upstream `amneziavpn/amneziawg-go` Docker
+Hub image ships an amd64 manifest only. There's no arm64 build in the
+multi-arch index.
+
+**Fix.** Two options:
+
+1. Build the daemon from source for ARM. The upstream repo at
+   `github.com/amnezia-vpn/amneziawg-go` has a Dockerfile that builds
+   on ARM. Push to your own registry, swap the `image:` line in
+   `awg-server/compose.yaml` to your fork's pinned digest. **Pin by
+   digest just like the upstream image** — `:latest` from your own
+   registry is a worse supply-chain story than the upstream digest pin.
+
+2. Skip AWG entirely until upstream ships arm64. The four sing-box-
+   native protocols still run on ARM hosts — singbox-server is
+   multi-arch.
+
+Don't swap in a random community-maintained ARM image without source-
+auditing it first. The whole point of the digest pin is supply-chain
+discipline; throwing that away to get AWG running is a worse posture
+than not having AWG.
+
+---
+
 ## Adding to this doc
 
 If you hit a silent-failure mode that took >2h to debug, write it up here.

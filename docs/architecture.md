@@ -293,6 +293,39 @@ implementation. Compensate with read-only rootfs, image digest pin, narrow
 port exposure (UDP/51820 only via VNIC_SECONDARY_IP), no-new-privileges.
 See [hardening.md](hardening.md).
 
+## AWG subnet allocation
+
+Per-user IPv4 addresses inside `awg.subnet` are allocated deterministically
+by `_allocate_awg_addresses()` in render.py. The mechanics:
+
+1. The first host address (e.g. `10.66.66.1` for the default `/24`) is
+   reserved for the awg-server's own [Interface] block. Never assigned to
+   a user, even via explicit pin.
+
+2. Pinned `awg_address` values from `profiles.yaml` are processed first.
+   Operator-set pins are validated (must parse as a CIDR, must lie inside
+   `awg.subnet`, must not collide with the server address or another
+   pin). Errors here exit before any rendering happens, so a bad pin
+   surfaces with a precise message rather than as a downstream "subnet
+   full" red herring.
+
+3. Hash-allocated for the rest. `int(sha256(uname).hexdigest(), 16) % N`
+   picks a starting offset; linear-probe forward (modulo `N`, sorted by
+   uname for determinism) until a free slot. Fail loud if the subnet is
+   full.
+
+Hash-from-username start means **adding a user mid-life doesn't reshuffle
+existing peers** — each is found at the same hash position on every run,
+which keeps `.conf` distributions stable across renders. Linear probe
+handles incidental collisions without resetting the whole allocation.
+
+`awg.subnet` defaults to `10.66.66.0/24` (254 host addrs, comfortable
+upper bound for the household scale clearway targets). The default value
+is chosen unconventional-enough to rarely collide with home networks;
+deployments where it *does* collide change it in `.secrets.yaml` and
+re-render. Subnet change is a flag-day for AWG users (every `.conf`
+becomes invalid; redistribute) — see [hazards.md #17](hazards.md#17-awg-subnet-collision-with-home_wg-ranges).
+
 ## SS-2022 multi-user EIH
 
 ShadowTLS's inner Shadowsocks-2022 inbound runs in **multi-user EIH** mode:
