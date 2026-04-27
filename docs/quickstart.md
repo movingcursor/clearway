@@ -234,7 +234,169 @@ If you want notifications for any of these (success / failure pings to
 Slack / Discord / your own webhook), set `NOTIFY=/path/to/notify.sh` in
 the cron line. The script gets one argument: a one-line summary string.
 
-## 9. Adding more users
+## 9. (Optional) Enable AWG for RU/IR users
+
+Skip this section if no user has `awg` in their `protocols:` list.
+AmneziaWG (AWG) gives RU/IR users a fifth-protocol parallel tunnel that
+runs in the **separate Amnezia VPN app** on the user's device — never in
+the sing-box profile. Operator setup adds a sidecar container.
+
+### Generate the AWG keypair + obfuscation params
+
+Server keypair (one shared keypair for the awg-server side):
+
+```sh
+# Server private key (raw 32-byte X25519, base64-encoded — wg-quick format).
+wg genkey | tee /tmp/awg-server.priv | wg pubkey > /tmp/awg-server.pub
+cat /tmp/awg-server.priv  # paste under `awg.server_private_key`
+cat /tmp/awg-server.pub   # paste under `awg.server_public_key`
+shred -u /tmp/awg-server.priv /tmp/awg-server.pub
+```
+
+Per-user private keys (one per AWG-enabled user; the matching public key
+is computed at render time, no manual derivation needed):
+
+```sh
+wg genkey  # paste under .secrets.yaml users.<name>.awg_private_key
+```
+
+Obfuscation params (Jc/Jmin/Jmax/S1/S2/H1-H4 — they MUST match exactly
+between server and every client; one mismatched octet silently times out
+the handshake by AWG design):
+
+```sh
+python3 - <<'PY'
+import secrets
+print(f'  Jc: {secrets.randbelow(13)+3}')        # 3..15
+print(f'  Jmin: {secrets.randbelow(50)+30}')     # 30..79
+print(f'  Jmax: {secrets.randbelow(80)+90}')     # 90..169 (must > Jmin)
+print(f'  S1: {secrets.randbelow(120)+15}')      # 15..134
+print(f'  S2: {secrets.randbelow(120)+15}')
+hs = []
+while len(hs) < 4:
+    h = secrets.randbelow(2_000_000_000) + 5
+    # 1..4 collide with WG's own message types — skip.
+    if h not in hs and h not in (1, 2, 3, 4):
+        hs.append(h)
+for i, h in enumerate(hs, 1):
+    print(f'  H{i}: {h}')
+PY
+```
+
+### Add the awg block to .secrets.yaml
+
+```yaml
+awg:
+  endpoint_host: vpn.<your-domain>     # public DNS / IP for client awg.conf
+  port: 51820                          # standard WG default
+  subnet: 10.66.66.0/24                # avoid collision with home_wg ranges
+  server_private_key: <from wg genkey above>
+  server_public_key:  <from wg pubkey above>
+  Jc: <generated>                      # paste output of the python snippet
+  Jmin: <generated>
+  Jmax: <generated>
+  S1: <generated>
+  S2: <generated>
+  H1: <generated>
+  H2: <generated>
+  H3: <generated>
+  H4: <generated>
+```
+
+Then add `awg` to the user's `protocols:` list in `profiles.yaml` and
+paste their `wg genkey` output under `users.<name>.awg_private_key` in
+`.secrets.yaml`. Re-render:
+
+```sh
+./render.py -y
+```
+
+The renderer emits a per-user `awg.conf` into `srv/p/<secret>/awg.conf`
+and the server config into `awg-server/config/awg0.conf`.
+
+### Open UDP/51820 in the cloud + host firewall
+
+See [hardening.md § Cloud-provider firewall](hardening.md#network).
+
+### Start the awg-server container
+
+awg-server lives behind the `awg-server` compose profile. Add the profile
+to your normal compose-up command:
+
+```sh
+cd /opt/clearway/awg-server
+docker compose --profile awg-server --env-file ../.env up -d awg-server
+docker logs awg-server --tail 20
+```
+
+Or, if you're starting the whole stack at once:
+
+```sh
+cd /opt/clearway
+docker compose --profile vpn up -d
+# `--profile vpn` enables singbox-server + awg-server + (whatever else
+# you've grouped under that profile). Same final state, single command.
+```
+
+`amneziavpn/amneziawg-go` is **amd64-only** as of 2026-04. ARM hosts must
+build the daemon from source (see
+[hardening.md § awg-server](hardening.md#awg-server-only-if-awg-enabled))
+or skip AWG.
+
+### Validate end-to-end
+
+You can't validate AWG fully without a client device. The minimum signal
+on the server side:
+
+- [ ] `docker ps --filter name=awg-server` shows running, no recent restarts.
+- [ ] `docker logs awg-server` is clean (no NET_ADMIN denials, no key-format
+      errors, no "address in use" on UDP/51820).
+- [ ] On the host: `ss -ulnp | grep 51820` shows the listener bound to
+      `${VNIC_SECONDARY_IP}:51820`, owned by the docker-userland process.
+- [ ] An AWG-enabled user can fetch their `.conf`:
+      `curl -sk https://${PROFILE_HOST}/p/<secret>/awg.conf | head` returns
+      a valid wg-quick config.
+
+Then on a test device:
+
+- [ ] Install Amnezia VPN (Android: github.com/amnezia-vpn/amnezia-client
+      releases; iOS: App Store, app id 1600529900).
+- [ ] Import the per-user `awg.conf` URL.
+- [ ] Connect — the Amnezia app should show "connected" within ~2s. If it
+      sits on "connecting" beyond ~5s, the handshake is failing — check
+      that obfuscation params on the server match the per-user .conf
+      (re-run `./render.py -y` if you've edited `.secrets.yaml` since
+      the .conf was generated).
+- [ ] Browse `https://ifconfig.me` — must show the awg-server's egress IP
+      (the VPS public IP), not the device's ISP IP.
+- [ ] On Android (which permits two simultaneous VPN tunnels), verify
+      sing-box and Amnezia VPN can both be active. On iOS, verify the
+      "tap to switch" flow works (only one VPN profile active at a time).
+
+If validation fails, `docker logs awg-server` is the first stop. The
+[hazards.md](hazards.md) AWG section covers the most common silent
+failure modes.
+
+### Rotate AWG obfuscation params periodically
+
+Quarterly cron is the suggested cadence (sooner if a regional throughput
+drop on AWG users suggests RKN has fingerprinted your specific param
+tuple). Cost: every AWG client must re-import their `.conf`.
+
+```cron
+# Quarterly AWG obfuscation rotation. Schedule for a low-traffic window —
+# every AWG client will need to re-import their .conf after this fires.
+0 6 1 */3 *  /opt/clearway/awg-server/rotate-awg-params.sh
+```
+
+### Bump the awg-server image
+
+```cron
+# Monthly awg-server image bump (digest pin update).
+0 4 6 * *  /opt/clearway/awg-server/bump-image.sh
+```
+
+## 10. Adding more users
 
 Edit `profiles.yaml` → add a `users.<name>:` block → run `./render.py`.
 The renderer auto-fills all credentials, writes their per-device configs
