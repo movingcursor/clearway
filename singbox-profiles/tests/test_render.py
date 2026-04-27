@@ -55,16 +55,29 @@ def _load_render_module():
     render.SECRETS = FIXTURES / '.secrets.yaml'
     render.HOME_WG_DIR = FIXTURES / 'home_wg'
     render.HY2_CERT = FIXTURES / 'hy2.crt'
+    # AWG paths: the client template lives in the real templates/ dir
+    # (read-only), but the awg-server stub path is rebased under FIXTURES so
+    # the stub-emission test path doesn't write into the real awg-server/
+    # location. Tests assert against the stub's *content*, not its filesystem
+    # location, so a fixtures-relative path works for the comparison without
+    # mutating the live repo layout.
+    render.AWG_SERVER_DIR = FIXTURES / 'awg-server'
+    render.AWG_SERVER_CONFIG = FIXTURES / 'awg-server' / 'config' / 'awg0.conf'
+    # AWG_CLIENT_TEMPLATE stays at the real location (read-only template,
+    # part of the renderer's static assets — not fixture-dependent).
 
     return render
 
 
 def _render_all(render):
     """
-    Render every user/device in the fixture manifest. Returns a dict
-    {'<user>-<device>': '<json-string>'}.
+    Render every output the renderer produces from the fixture manifest.
+    Returns a dict {'<filename>': '<file-contents>'} — the key is the full
+    filename including extension so .json (sing-box configs) and .conf
+    (AWG client + awg-server stub) co-exist in one map. _compare() looks
+    each one up under the same name in tests/goldens/.
     Uses -y-equivalent: auto_yes=True prevents prompting, but we also
-    patch-save_secrets to a no-op so the test run never mutates the
+    patch save_secrets to a no-op so the test run never mutates the
     fixture .secrets.yaml.
     """
     render.save_secrets = lambda data: None  # defensive: fixtures are read-only
@@ -75,7 +88,31 @@ def _render_all(render):
         user.setdefault('_name', uname)
         for dev in user['devices']:
             cfg = render.compose(user, dev, manifest['defaults'])
-            out[f'{uname}-{dev["name"]}'] = render.emit_json(cfg)
+            out[f'{uname}-{dev["name"]}.json'] = render.emit_json(cfg)
+
+    # AWG outputs (stage 1+): per-user awg.conf + awg-server stub. Only
+    # emitted when at least one user has 'awg' in protocols, so non-AWG
+    # fixture runs produce nothing here and existing goldens stay clean.
+    awg_state = manifest.get('_awg')
+    if awg_state:
+        sfile_users_for_awg = {
+            uname: {'awg_private_key': u['awg_private_key']}
+            for uname, u in manifest['users'].items()
+            if u.get('awg_private_key')
+        }
+        for uname, user in manifest['users'].items():
+            if 'awg' not in user.get('protocols', []):
+                continue
+            text = render._render_awg_client_conf(
+                uname,
+                user,
+                {'users': sfile_users_for_awg},
+                awg_state['block'],
+                awg_state['addresses'][uname],
+            )
+            out[f'{uname}-awg.conf'] = text
+        out['awg-server.conf'] = render._render_awg_server_stub(awg_state['block'])
+
     return out
 
 
@@ -83,18 +120,25 @@ def _compare(rendered, update):
     """
     Diff rendered output vs goldens. Return (passes, fails) counts.
     When `update=True`, overwrite goldens instead of failing.
+
+    Keys in `rendered` are full filenames (e.g. test_alice-pixel.json,
+    test_dave-awg.conf). Goldens live at tests/goldens/<filename>. The
+    extension differentiates sing-box JSON outputs from AWG wg-quick .conf
+    outputs without forcing two parallel comparison loops.
     """
     passes = fails = 0
     GOLDENS.mkdir(exist_ok=True)
 
-    # Track known goldens so we can report orphans (golden files without
-    # a matching rendered output — signals a renamed/removed device).
-    existing_goldens = {p.stem for p in GOLDENS.glob('*.json')}
+    # Orphan goldens (a file present in tests/goldens/ that no rendered
+    # output matches) signal renamed/removed devices or a fixture user that
+    # dropped a protocol. Reported but don't fail the run — the reporter
+    # spots them so the operator can clean them up explicitly.
+    existing_goldens = {p.name for p in GOLDENS.glob('*') if p.is_file()}
     rendered_keys = set(rendered.keys())
     orphans = existing_goldens - rendered_keys
 
     for key in sorted(rendered.keys()):
-        golden = GOLDENS / f'{key}.json'
+        golden = GOLDENS / key
         new = rendered[key]
         if update:
             golden.write_text(new)
@@ -114,17 +158,51 @@ def _compare(rendered, update):
             diff = difflib.unified_diff(
                 old.splitlines(keepends=True),
                 new.splitlines(keepends=True),
-                fromfile=f'goldens/{key}.json',
-                tofile=f'rendered/{key}.json',
+                fromfile=f'goldens/{key}',
+                tofile=f'rendered/{key}',
                 n=3,
             )
             sys.stdout.writelines(diff)
             fails += 1
 
     for orphan in sorted(orphans):
-        print(f'  ⚠ orphan golden: {orphan}.json (no matching device in fixtures)')
+        print(f'  ⚠ orphan golden: {orphan} (no matching output in fixtures)')
 
     return passes, fails
+
+
+def _test_awg_negative(render):
+    """
+    Negative test: a user with 'awg' in protocols but no `awg_private_key`
+    in .secrets.yaml must cause _validate_awg_block to exit with a message
+    that names the field. Uses the validation function directly with a
+    synthetic minimal manifest + sfile, so it doesn't need its own fixture
+    tree on disk and doesn't pollute the goldens.
+
+    Returns (passed, failed) — printed as a single line by main().
+    """
+    awg_block = {
+        'subnet': '10.66.66.0/24', 'port': 51820,
+        'endpoint_host': 'vpn.example.com',
+        'server_private_key': 'X', 'server_public_key': 'Y',
+        'Jc': 8, 'Jmin': 40, 'Jmax': 80, 'S1': 75, 'S2': 110,
+        'H1': 1, 'H2': 2, 'H3': 3, 'H4': 4,
+    }
+    sfile = {'users': {'someone': {}}}  # no awg_private_key
+    manifest = {'users': {'someone': {'protocols': ['awg']}}}
+    try:
+        render._validate_awg_block(awg_block, sfile, manifest)
+    except SystemExit as e:
+        msg = str(e)
+        if 'awg_private_key' in msg and "'someone'" in msg:
+            print('  ✓ awg-negative: missing awg_private_key fails loud')
+            return 1, 0
+        print(f'  ✗ awg-negative: SystemExit message did not mention '
+              f'awg_private_key + the offending user: {msg!r}')
+        return 0, 1
+    print('  ✗ awg-negative: validation did NOT exit when awg_private_key '
+          'was missing — this is a regression of the stage-1 hard check')
+    return 0, 1
 
 
 def main():
@@ -142,11 +220,20 @@ def main():
         raise
 
     passes, fails = _compare(rendered, update=update)
+
+    # Negative tests run even in --update mode (they're not goldens, they
+    # exercise the renderer's hard-check paths). Skipping under --update
+    # would silently lose the regression coverage.
+    neg_pass, neg_fail = _test_awg_negative(render)
+    passes += neg_pass
+    fails += neg_fail
+
     total = passes + fails
     print()
     if update:
-        print(f'regenerated {passes} golden(s)')
-        sys.exit(0)
+        print(f'regenerated {passes - neg_pass} golden(s); '
+              f'{neg_pass}/{neg_pass + neg_fail} negative test(s) passed')
+        sys.exit(0 if neg_fail == 0 else 1)
     print(f'{passes}/{total} passed, {fails} failed')
     sys.exit(0 if fails == 0 else 1)
 

@@ -53,9 +53,13 @@ users:
       - { type: mobile,  name: iphone }
 
   # Two-country traveller without home_wg. Restricted defaults to 🌍 Default.
+  # Carries 'awg' to exercise the stage-1 AWG schema + per-user .conf
+  # emission. AWG never lands in the sing-box profile (protocols enum allows
+  # it but no outbound is emitted), so the JSON goldens for test_dave-pc are
+  # unaffected by adding awg here — only test_dave's awg.conf is new.
   test_dave:
     countries: [ru, ir]
-    protocols: [reality, hysteria2]
+    protocols: [reality, hysteria2, awg]
     utls_fingerprint: firefox
     devices:
       - { type: windows, name: pc }
