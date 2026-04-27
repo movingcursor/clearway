@@ -59,23 +59,24 @@ if [[ ! -s "${CONFIG}" ]]; then
   exit 1
 fi
 
-# 2. Structural check: [Interface] section with PrivateKey + ListenPort +
-#    Address. Empty-peer-set is allowed (a freshly-rendered config with no
-#    AWG users yet still passes; the container starts but accepts no
-#    handshakes). awk is in coreutils — no extra dependency.
+# 2. Structural check: [Interface] section with PrivateKey + ListenPort.
+#    Address is intentionally NOT required — `awg setconf` rejects it (wg-quick
+#    field), so the rendered config carries it as a comment / out-of-band only;
+#    the container entrypoint sets the address via `ip addr add`. Empty-peer-set
+#    is allowed (a freshly-rendered config with no AWG devices yet still passes;
+#    the container starts but accepts no handshakes). awk is in coreutils — no
+#    extra dependency.
 awk_out=$(awk '
   /^\[Interface\]/ { in_iface=1; in_peer=0; next }
   /^\[Peer\]/      { in_iface=0; in_peer=1; peers++; have_pubkey=0; have_allowed=0; next }
   in_iface && /^[[:space:]]*PrivateKey[[:space:]]*=/  { have_priv=1 }
   in_iface && /^[[:space:]]*ListenPort[[:space:]]*=/  { have_port=1 }
-  in_iface && /^[[:space:]]*Address[[:space:]]*=/     { have_addr=1 }
   in_peer  && /^[[:space:]]*PublicKey[[:space:]]*=/   { have_pubkey=1 }
   in_peer  && /^[[:space:]]*AllowedIPs[[:space:]]*=/  { have_allowed=1 }
   in_peer  && /^\[/ { if (!have_pubkey || !have_allowed) bad_peer=1 }
   END {
     if (!have_priv)  print "missing [Interface] PrivateKey"
     if (!have_port)  print "missing [Interface] ListenPort"
-    if (!have_addr)  print "missing [Interface] Address"
     if (bad_peer)    print "a [Peer] block is missing PublicKey or AllowedIPs"
   }
 ' "${CONFIG}")

@@ -75,9 +75,10 @@ PROFILES_SCHEMA = {
                             # .conf consumed by the Amnezia VPN app, not in
                             # the sing-box profile (deliberate two-app split,
                             # see docs/architecture.md). Including 'awg' in
-                            # protocols flips the per-user awg.conf emission
-                            # and the server-side [Peer] block; nothing in
-                            # the sing-box outbound list changes.
+                            # protocols flips per-device awg-<dev>.conf
+                            # emission and the matching server-side [Peer]
+                            # blocks; nothing in the sing-box outbound list
+                            # changes.
                             'items': {'enum': ['reality', 'ws-cf', 'shadowtls', 'hy2', 'awg']},
                             'minItems': 1,
                         },
@@ -91,12 +92,6 @@ PROFILES_SCHEMA = {
                         'preferred_protocol': {
                             'enum': ['reality', 'ws-cf', 'shadowtls', 'hy2', 'awg'],
                         },
-                        # Optional pin of the user's AWG IPv4 address (CIDR, /32
-                        # convention). If omitted the renderer auto-allocates
-                        # from .secrets.yaml's awg.subnet via a deterministic
-                        # hash-of-username probe — stable across runs so a fresh
-                        # render doesn't reshuffle every peer's address.
-                        'awg_address': {'type': 'string'},
                         'admin': {'type': 'boolean'},
                         # Per-user uTLS fingerprint. Structural (chosen by
                         # operator to spread JA3/JA4 signatures across the
@@ -133,6 +128,15 @@ PROFILES_SCHEMA = {
                                 'properties': {
                                     'type': {'enum': ['mobile', 'windows']},
                                     'name': {'type': 'string', 'pattern': '^[a-z0-9][a-z0-9_-]*$'},
+                                    # Optional pin of this device's AWG IPv4
+                                    # address (CIDR, /32 convention). If omitted
+                                    # the renderer auto-allocates from
+                                    # .secrets.yaml's awg.subnet via a stable
+                                    # hash of "<uname>/<dev_name>" so adding a
+                                    # new device doesn't reshuffle existing
+                                    # peers. Only meaningful when the user has
+                                    # 'awg' in protocols.
+                                    'awg_address': {'type': 'string'},
                                 },
                             },
                         },
@@ -1421,6 +1425,18 @@ Get-Content "C:\\Program Files\\sing-box\\logs\\service.err.log" -Tail 30
     # sing-box and Amnezia VPN; Android allows both to coexist.
     awg_section = ''
     if has_awg:
+        # One AWG config per device (each device has its own keypair + IP, so
+        # they show up as distinct peers on the server). Single-device users
+        # see one URL in a fenced block; multi-device users see a labelled
+        # list — same shape as _mobile_url_block.
+        if len(devices) == 1:
+            d = devices[0]
+            awg_url_block = f"```\nhttps://{PROFILE_HOST}/p/{secret}/awg-{d['name']}.conf\n```"
+        else:
+            awg_url_block = '\n'.join(
+                f"- **{d['name']}** ({d['type']}) — `https://{PROFILE_HOST}/p/{secret}/awg-{d['name']}.conf`"
+                for d in devices
+            )
         awg_section = f"""## AmneziaWG (parallel resilience tunnel)
 
 Your profile includes an AmneziaWG (AWG) tunnel for protocol diversity. AWG
@@ -1434,16 +1450,16 @@ RKN/TSPU and what survives Iranian QUIC blackouts).
 - **Android** — [amnezia-client GitHub releases](https://github.com/amnezia-vpn/amnezia-client/releases). Verify the SHA256 against the release notes before installing.
 - **iOS** — [Amnezia VPN App Store](https://apps.apple.com/app/amneziavpn/id1600529900) — free.
 
-### Step 2 — Import your AWG config
+### Step 2 — Import your AWG config (per device)
 
-Download your wg-quick config:
+Each of your devices has its own AWG identity (keypair + IP) — import the
+config matching the device you're setting up:
 
-```
-https://{PROFILE_HOST}/p/{secret}/awg.conf
-```
+{awg_url_block}
 
-In the Amnezia app: **+** → **From file/URL** → paste the URL or import the
-saved file. The app picks up the AWG obfuscation params automatically.
+In the Amnezia app on each device: **+** → **From file/URL** → paste that
+device's URL or import the saved file. The app picks up the AWG obfuscation
+params automatically.
 
 ### iOS caveat — only one VPN active at a time
 
@@ -1621,19 +1637,10 @@ def unified_diff(a_text, b_text, a_label, b_label):
 
 def compute_client_plan(manifest):
     """Pure planning: returns list of (path, new_text, action, uname) for every
-    per-device output file + per-user README + per-user awg.conf (when AWG is
-    enabled for that user). Does not print or write."""
+    per-device output file + per-user README + per-device awg-<dev>.conf
+    (when AWG is enabled for that user). Does not print or write."""
     defaults = manifest['defaults']
     awg_state = manifest.get('_awg')  # set by load_manifest only when AWG is in use
-    sfile_users_for_awg = {}
-    if awg_state:
-        # Re-read .secrets.yaml only enough to fetch awg_private_key per user
-        # (the merged manifest already has it on the user dict — pulling from
-        # there avoids a second file read and guarantees consistency with the
-        # validation pass).
-        for uname, user in manifest['users'].items():
-            if user.get('awg_private_key'):
-                sfile_users_for_awg[uname] = {'awg_private_key': user['awg_private_key']}
     plan = []
     for uname, user in manifest['users'].items():
         uname_user = dict(user); uname_user['_name'] = uname
@@ -1651,28 +1658,30 @@ def compute_client_plan(manifest):
                 action = 'create'
             plan.append((path, text, action, uname))
 
-        # Per-user AWG client config — only when the user has 'awg' in
-        # protocols. Lives next to the sing-box JSONs so the served-URL tree
-        # at /p/<secret>/awg.conf can be fetched by the Amnezia VPN app the
-        # same way the sing-box app fetches /p/<secret>/singbox-<device>.json.
-        # Filename intentionally `awg.conf` (not `awg-mobile.conf`) — the
-        # config is platform-agnostic and a single user has at most one AWG
-        # identity (one [Peer] on the server side per user, not per device).
+        # Per-device AWG client config — only when the user has 'awg' in
+        # protocols, one config per device (each device has its own keypair
+        # and IP). Filename `awg-<dev>.conf` mirrors `singbox-<dev>.json`
+        # so the served-URL tree at /p/<secret>/awg-<dev>.conf can be fetched
+        # by the Amnezia VPN app per device.
+        expected_awg = set()
         if awg_state and 'awg' in user.get('protocols', []):
-            awg_text = _render_awg_client_conf(
-                uname,
-                user,
-                {'users': sfile_users_for_awg},
-                awg_state['block'],
-                awg_state['addresses'][uname],
-            )
-            awg_path = outdir / 'awg.conf'
-            expected.add('awg.conf')
-            if awg_path.exists():
-                action = 'unchanged' if awg_path.read_text() == awg_text else 'modify'
-            else:
-                action = 'create'
-            plan.append((awg_path, awg_text, action, uname))
+            for dev in user['devices']:
+                awg_text = _render_awg_client_conf(
+                    uname,
+                    dev['name'],
+                    dev,
+                    awg_state['block'],
+                    awg_state['addresses'][uname][dev['name']],
+                )
+                awg_fname = f'awg-{dev["name"]}.conf'
+                awg_path = outdir / awg_fname
+                expected.add(awg_fname)
+                expected_awg.add(awg_fname)
+                if awg_path.exists():
+                    action = 'unchanged' if awg_path.read_text() == awg_text else 'modify'
+                else:
+                    action = 'create'
+                plan.append((awg_path, awg_text, action, uname))
 
         # Per-user README with all setup instructions + credentials inlined.
         # The admin sends this to the user when onboarding them.
@@ -1688,12 +1697,16 @@ def compute_client_plan(manifest):
             for existing in outdir.glob('singbox-*.json'):
                 if existing.name not in expected:
                     plan.append((existing, None, 'delete', uname))
-            # Also clean up an awg.conf left over from when a user had AWG
-            # enabled but no longer does — same delete pattern as the
-            # singbox-*.json sweep above.
-            stale_awg = outdir / 'awg.conf'
-            if stale_awg.exists() and 'awg.conf' not in expected:
-                plan.append((stale_awg, None, 'delete', uname))
+            # Sweep stale AWG configs: any `awg-*.conf` (per-device) plus the
+            # legacy `awg.conf` (pre-2026-04-27, single per-user). The legacy
+            # name is never re-emitted, so its presence after migration
+            # always means delete.
+            for existing in outdir.glob('awg-*.conf'):
+                if existing.name not in expected_awg:
+                    plan.append((existing, None, 'delete', uname))
+            stale_legacy = outdir / 'awg.conf'
+            if stale_legacy.exists():
+                plan.append((stale_legacy, None, 'delete', uname))
 
     # awg-server config emission. Real [Interface] + per-user [Peer] blocks
     # rendered from .secrets.yaml + the AWG users' derived public keys. Bind-
@@ -2016,6 +2029,15 @@ def _autogen_missing(sfile, manifest):
             if dev['type'] == 'windows' and not s_dev.get('clash_secret'):
                 s_dev['clash_secret'] = secrets.token_hex(24)
                 changed.append(f'  gen {uname}/{dev["name"]}.clash_secret = {s_dev["clash_secret"]}')
+            # AWG: per-device X25519 private key (32 random bytes, base64).
+            # cryptography's X25519PrivateKey.from_private_bytes does the
+            # RFC-7748 clamping internally, so any 32-byte random input is
+            # equivalent to `wg genkey`. Auto-gen is safe here because
+            # render.py is the sole writer of the awg-server [Peer] list —
+            # the next render writes both halves atomically.
+            if 'awg' in protocols and not s_dev.get('awg_private_key'):
+                s_dev['awg_private_key'] = _new_b64_key(32)
+                changed.append(f'  gen {uname}/{dev["name"]}.awg_private_key = {s_dev["awg_private_key"]}')
 
     return sfile, changed
 
@@ -2043,6 +2065,16 @@ def _awg_users(manifest):
             continue
         if 'awg' in (user.get('protocols') or []):
             yield uname, user
+
+
+def _awg_devices(manifest):
+    """Iterator over (uname, dev_name, dev) tuples for every device of every
+    user with 'awg' in protocols. AWG identities are per-device (each device
+    gets its own keypair, /32 address, and [Peer] block on the server) so all
+    AWG emission paths walk this iterator rather than the per-user one."""
+    for uname, user in _awg_users(manifest):
+        for dev in user.get('devices', []):
+            yield uname, dev['name'], dev
 
 
 def _validate_awg_block(awg_block, sfile, manifest):
@@ -2082,41 +2114,47 @@ def _validate_awg_block(awg_block, sfile, manifest):
             f'addrs); need at least 2 (server + 1 client). Use /29 or larger.'
         )
 
-    # Each AWG user must have a private key in .secrets.yaml. The key is
-    # operator-supplied (out-of-band `wg genkey`, paired with a server-side
-    # [Peer] entry that uses the matching public key) — render.py never
-    # auto-generates AWG keys because the server-side Peer list is paired
-    # state and a silent rotation would orphan the client.
+    # Every AWG device must have a private key in .secrets.yaml under
+    # users.<n>.devices.<dev>.awg_private_key. _autogen_missing fills these
+    # in if absent (render.py is the sole writer of the awg-server [Peer]
+    # list, so silent rotation no longer orphans clients — the next render
+    # writes both halves atomically). Validation here only fires if autogen
+    # somehow failed to populate, so the message points at .secrets.yaml.
     bad = []
-    for uname, _user in _awg_users(manifest):
-        s_user = sfile.get('users', {}).get(uname, {})
-        if not s_user.get('awg_private_key'):
-            bad.append(uname)
+    for uname, dev_name, _dev in _awg_devices(manifest):
+        s_dev = (sfile.get('users', {})
+                      .get(uname, {})
+                      .get('devices', {})
+                      .get(dev_name, {}))
+        if not s_dev.get('awg_private_key'):
+            bad.append(f'{uname}/{dev_name}')
     if bad:
         sys.exit(
-            f"users with 'awg' in protocols but no awg_private_key in "
-            f".secrets.yaml: {bad}. Generate per user with `wg genkey`, "
-            f"paste under users.<name>.awg_private_key. The matching public "
+            f"AWG devices missing awg_private_key in .secrets.yaml: {bad}. "
+            f"Either let render.py auto-generate them, or paste under "
+            f"users.<name>.devices.<dev>.awg_private_key. The matching public "
             f"key is computed at render time."
         )
 
 
 def _allocate_awg_addresses(manifest, awg_block):
     """
-    Deterministic per-user IPv4 allocation inside `awg.subnet`. Reserves
-    the first host address (.1) for the awg-server, then for each AWG user:
-      - if `awg_address` is pinned in profiles.yaml, validate + use it
-      - otherwise hash(username) → starting index, linear-probe forward
-        until a free slot, fail loud if the subnet is full
+    Deterministic per-device IPv4 allocation inside `awg.subnet`. Reserves
+    the first host address (.1) for the awg-server, then for each AWG
+    device (per-user, per-device):
+      - if `awg_address` is pinned on the device in profiles.yaml, validate + use it
+      - otherwise hash("<uname>/<dev_name>") → starting index, linear-probe
+        forward until a free slot, fail loud if the subnet is full
 
-    Hash-based probing means adding a user mid-life doesn't reshuffle
+    Hash-based probing means adding a device mid-life doesn't reshuffle
     existing peers (each is found at the same hash position on every run).
-    Sorting users alphabetically before allocation keeps the iteration order
+    Sorting devices alphabetically before allocation keeps iteration order
     stable in goldens.
 
-    Returns: (server_address, {uname: ip_str}). server_address is an
-    `ipaddress.IPv4Address`; uname→ip is plain strings (used directly in
-    the [Peer] AllowedIPs line and the per-user [Interface] Address line).
+    Returns: (server_address, addresses) where addresses is a nested dict
+    {uname: {dev_name: ip_str}}. server_address is an `ipaddress.IPv4Address`;
+    ips are plain strings (used directly in the server [Peer] AllowedIPs and
+    the client [Interface] Address line, both with /32 appended at use site).
     """
     import hashlib
     import ipaddress
@@ -2124,64 +2162,71 @@ def _allocate_awg_addresses(manifest, awg_block):
     hosts = list(net.hosts())
     server_addr = hosts[0]   # .1 by convention; matches the [Interface] Address
                              # in awg-server.conf. Reserved — never assigned to
-                             # any user, even via awg_address pin.
+                             # any device, even via awg_address pin.
     available = hosts[1:]
     n = len(available)
 
     used = set()
-    addresses = {}
+    addresses = {}  # {uname: {dev_name: ip_str}}
+
+    # Stable ordering for both passes — by (uname, dev_name).
+    devices = sorted(_awg_devices(manifest), key=lambda t: (t[0], t[1]))
 
     # Pass 1: process pinned awg_address values first so hash-allocated peers
     # avoid them. Errors here exit immediately so the operator sees the bad
     # pin instead of a downstream "subnet full" red herring.
-    for uname, user in sorted(_awg_users(manifest)):
-        pin = user.get('awg_address')
+    for uname, dev_name, dev in devices:
+        pin = dev.get('awg_address')
         if not pin:
             continue
+        label = f'{uname}/{dev_name}'
         try:
             iface = ipaddress.ip_interface(pin)
             ip = iface.ip
         except ValueError as e:
-            sys.exit(f'user {uname!r} has invalid awg_address {pin!r}: {e}')
+            sys.exit(f'device {label!r} has invalid awg_address {pin!r}: {e}')
         if ip not in net:
             sys.exit(
-                f'user {uname!r} awg_address {ip} is outside awg.subnet {net} '
+                f'device {label!r} awg_address {ip} is outside awg.subnet {net} '
                 f'— pin must be inside the configured subnet.'
             )
         if ip == server_addr:
             sys.exit(
-                f'user {uname!r} awg_address {ip} collides with the reserved '
+                f'device {label!r} awg_address {ip} collides with the reserved '
                 f'server address {server_addr}.'
             )
         if ip in used:
-            sys.exit(f'user {uname!r} awg_address {ip} duplicates another user.')
+            sys.exit(f'device {label!r} awg_address {ip} duplicates another device.')
         used.add(ip)
-        addresses[uname] = str(ip)
+        addresses.setdefault(uname, {})[dev_name] = str(ip)
 
-    # Pass 2: hash-allocate every remaining AWG user.
-    for uname, user in sorted(_awg_users(manifest)):
-        if uname in addresses:
+    # Pass 2: hash-allocate every remaining AWG device. Hash key includes
+    # both username and device name so renaming a device or adding a new one
+    # doesn't perturb the others' allocations.
+    for uname, dev_name, _dev in devices:
+        if addresses.get(uname, {}).get(dev_name):
             continue
-        h = int(hashlib.sha256(uname.encode()).hexdigest(), 16)
+        key = f'{uname}/{dev_name}'.encode()
+        h = int(hashlib.sha256(key).hexdigest(), 16)
         for i in range(n):
             cand = available[(h + i) % n]
             if cand not in used:
                 used.add(cand)
-                addresses[uname] = str(cand)
+                addresses.setdefault(uname, {})[dev_name] = str(cand)
                 break
         else:
             sys.exit(
                 f'awg.subnet {net} is full — cannot allocate an address for '
-                f'user {uname!r}. Increase the subnet (e.g. /23) or remove an '
-                f'AWG user.'
+                f'device {uname!r}/{dev_name!r}. Increase the subnet (e.g. /23) '
+                f'or remove an AWG device.'
             )
 
     return server_addr, addresses
 
 
-def _render_awg_client_conf(uname, user, sfile, awg_block, address):
+def _render_awg_client_conf(uname, dev_name, dev, awg_block, address):
     """
-    Substitute the per-user values + AWG block into the wg-quick client
+    Substitute the per-device values + AWG block into the wg-quick client
     template. Pure string replace on __PLACEHOLDER__ tokens (matches the
     style used by singbox-server.template.jsonc and the PowerShell installer
     template).
@@ -2189,14 +2234,20 @@ def _render_awg_client_conf(uname, user, sfile, awg_block, address):
     `address` comes from _allocate_awg_addresses; expressed as plain
     "10.66.66.20" (no CIDR) — the template appends /32 explicitly so a
     pinned awg_address in profiles.yaml that already carries /32 doesn't
-    silently double up.
+    silently double up. The private key comes from the merged device dict
+    (load_manifest moves it from .secrets.yaml.users.<n>.devices.<dev>
+    onto dev['awg_private_key']).
     """
     if not AWG_CLIENT_TEMPLATE.exists():
         sys.exit(f'AWG client template missing: {AWG_CLIENT_TEMPLATE}')
     tpl = AWG_CLIENT_TEMPLATE.read_text()
-    s_user = sfile.get('users', {}).get(uname, {})
+    if not dev.get('awg_private_key'):
+        sys.exit(
+            f'internal: device {uname}/{dev_name} reached client-conf render '
+            f'without a private key (validation should have caught this).'
+        )
     subs = {
-        '__USER_PRIVATE_KEY__':  s_user['awg_private_key'],
+        '__USER_PRIVATE_KEY__':  dev['awg_private_key'],
         '__USER_ADDRESS__':      f'{address}/32',
         '__SERVER_PUBLIC_KEY__': awg_block['server_public_key'],
         '__SERVER_HOST__':       str(awg_block['endpoint_host']),
@@ -2244,12 +2295,12 @@ def _x25519_public_from_private(b64_private):
 
 def _render_awg_server_config(manifest, awg_state):
     """
-    Render the awg-server config from the wg-quick template + per-user
-    [Peer] blocks. Replaces the stage-1 stub. AWG_SERVER_TEMPLATE provides
-    the [Interface] block; this function appends one [Peer] per AWG user
-    with their derived public key + allocated /32 address.
+    Render the awg-server config from the wg-quick template + per-device
+    [Peer] blocks. AWG_SERVER_TEMPLATE provides the [Interface] block; this
+    function appends one [Peer] per AWG device (per-user, per-device) with
+    that device's derived public key + allocated /32 address.
 
-    Each user's public key is computed from `awg_private_key` at render
+    Each device's public key is computed from `awg_private_key` at render
     time — no second source of truth, no risk of drift between client
     .conf and server [Peer] block.
     """
@@ -2259,18 +2310,18 @@ def _render_awg_server_config(manifest, awg_state):
     addresses = awg_state['addresses']
     server_address = awg_state['server_address']
 
-    # Build [Peer] blocks for every AWG user. Sorted-by-username order
-    # keeps the rendered file stable when peers come and go (golden-test
+    # Build [Peer] blocks for every AWG device. Sorted by (uname, dev_name)
+    # so the rendered file stays stable when peers come and go (golden-test
     # friendliness + clean diffs).
     peer_lines = []
-    for uname, user in sorted(_awg_users(manifest)):
+    for uname, dev_name, dev in sorted(_awg_devices(manifest), key=lambda t: (t[0], t[1])):
         try:
-            pub = _x25519_public_from_private(user['awg_private_key'])
+            pub = _x25519_public_from_private(dev['awg_private_key'])
         except Exception as e:
             sys.exit(
-                f'failed to derive AWG public key for user {uname!r}: {e}. '
-                f'Check that .secrets.yaml.users.{uname}.awg_private_key is '
-                f'a valid base64 32-byte X25519 private key (output of `wg genkey`).'
+                f'failed to derive AWG public key for {uname}/{dev_name}: {e}. '
+                f'Check that .secrets.yaml.users.{uname}.devices.{dev_name}.'
+                f'awg_private_key is a valid base64 32-byte X25519 private key.'
             )
         # PersistentKeepalive=0 server-side mitigates the WG keepalive-storm
         # bug (sing-box #3981 / wireguard-go shared upstream): an active
@@ -2280,14 +2331,14 @@ def _render_awg_server_config(manifest, awg_state):
         # *server-initiated* keepalive. See docs/hazards.md.
         peer_lines.append(
             f'[Peer]\n'
-            f'# {uname}\n'
+            f'# {uname}/{dev_name}\n'
             f'PublicKey = {pub}\n'
-            f'AllowedIPs = {addresses[uname]}/32\n'
+            f'AllowedIPs = {addresses[uname][dev_name]}/32\n'
             f'PersistentKeepalive = 0\n'
         )
     peers_block = '\n'.join(peer_lines) if peer_lines else (
-        '# (no AWG users in profiles.yaml — empty peer set; awg-server will\n'
-        '#  start but accept no client handshakes until users are added.)\n'
+        '# (no AWG devices in profiles.yaml — empty peer set; awg-server will\n'
+        '#  start but accept no client handshakes until devices are added.)\n'
     )
 
     tpl = AWG_SERVER_TEMPLATE.read_text()
@@ -2378,6 +2429,39 @@ def load_manifest(auto_yes=False):
         for line in rename_report:
             print(line)
 
+    # One-shot migration: drop legacy user-level awg_private_key entries.
+    # Pre-2026-04-27 layout had AWG identities per-user; the per-device
+    # rewrite moves keys to devices.<dev>.awg_private_key and re-allocates
+    # IPs by hash("<uname>/<dev_name>") (so IPs shift across the migration
+    # too). We park the old user-level key onto the alphabetically-first
+    # device — preserves one [Peer] keypair so the operator's mental model
+    # of "user X had this pubkey" survives — but every AWG client still
+    # needs to re-import because the per-device address has changed.
+    migration_report = []
+    for uname, user in manifest['users'].items():
+        if 'awg' not in (user.get('protocols') or []):
+            continue
+        s_user = sfile.get('users', {}).get(uname)
+        if not s_user or 'awg_private_key' not in s_user:
+            continue
+        legacy_key = s_user.get('awg_private_key')
+        s_user.setdefault('devices', {})
+        device_names = sorted(d['name'] for d in user.get('devices', []))
+        if device_names and legacy_key:
+            primary = device_names[0]
+            s_dev = s_user['devices'].setdefault(primary, {})
+            if not s_dev.get('awg_private_key'):
+                s_dev['awg_private_key'] = legacy_key
+                migration_report.append(
+                    f'  parked {uname}.awg_private_key on {uname}/{primary} '
+                    f'(all AWG clients still need a re-import — IPs shifted)'
+                )
+        del s_user['awg_private_key']
+    if migration_report:
+        print('── AWG per-device migration ─────────────────────────────────')
+        for line in migration_report:
+            print(line)
+
     # Auto-generate any missing credentials before merging (so we never render
     # a device with a null secret).
     sfile, gen_report = _autogen_missing(sfile, manifest)
@@ -2386,10 +2470,10 @@ def load_manifest(auto_yes=False):
         for line in gen_report:
             print(line)
 
-    # Persist .secrets.yaml if renames OR auto-gen changed anything. Renames
-    # alone (without auto-gen) also need saving — otherwise the moved key
-    # would reset to the orphan name on next run.
-    if rename_report or gen_report:
+    # Persist .secrets.yaml if renames, auto-gen, or AWG migration changed
+    # anything. Each of these alone needs saving — otherwise the change would
+    # be redone on next run.
+    if rename_report or gen_report or migration_report:
         save_secrets(sfile)
         print(f'  wrote {SECRETS.relative_to(ROOT)}')
 
@@ -2416,13 +2500,12 @@ def load_manifest(auto_yes=False):
         # shadowsocks_password restored to per-user list 2026-04-22 after
         # switching to SS-2022 multi-user EIH. shared.shadowsocks_password is
         # still in use — but as the inbound-level server PSK, not the session key.
-        # awg_private_key joined the merge in the AWG addition (stage 1) — only
-        # surfaces on user dicts whose protocols actually include 'awg'; the
-        # _validate_awg_block check above already failed if a user has 'awg'
-        # but no key, so a missing field here means the user just doesn't use AWG.
+        # awg_private_key moved to device level 2026-04-27 (per-device AWG
+        # identities — see _awg_devices); migration is handled above before
+        # merge so the user-level key is gone by the time we get here.
         for field in ('secret', 'ws_cf_uuid', 'hy2_password',
                       'shadowtls_password', 'shadowsocks_password',
-                      'awg_private_key', 'notify_webhook'):
+                      'notify_webhook'):
             if field in s_user:
                 user.setdefault(field, s_user[field])
         for dev in user.get('devices', []):
@@ -2431,6 +2514,8 @@ def load_manifest(auto_yes=False):
                 dev.setdefault('reality', s_dev['reality'])
             if 'clash_secret' in s_dev:
                 dev.setdefault('clash_secret', s_dev['clash_secret'])
+            if 'awg_private_key' in s_dev:
+                dev.setdefault('awg_private_key', s_dev['awg_private_key'])
 
     # Merge home_wg/*.conf into user + device blocks
     for uname, user in manifest['users'].items():
