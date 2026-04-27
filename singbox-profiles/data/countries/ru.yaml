@@ -37,14 +37,23 @@ rulesets:
   - { tag: ru-available-only-inside, url: https://cdn.jsdelivr.net/gh/runetfreedom/russia-v2ray-rules-dat@release/sing-box/rule-set-geosite/geosite-ru-available-only-inside.srs, update_interval: 1d }
 
 protocols:
-  recommended: [reality, shadowtls, hysteria2]
+  recommended: [reality, shadowtls, hy2, awg]
+  # Country default for the 🔀 Proxy selector. shadowtls is the most
+  # resilient sing-box-native protocol to RKN/TSPU's TCP-freeze attack on
+  # suspicious foreign IPs that has degraded Reality through late 2025.
+  # awg is recommended as a *parallel* tunnel via the separate Amnezia VPN
+  # app (not the sing-box profile), so it doesn't appear as the sing-box
+  # selector default.
+  default: shadowtls
   notes: |
-    WS-CDN dropped from recommended: Cloudflare throttles Russian
-    users to ~16 KB per response (CF's own blog, 2025-06-09), with
-    eastern-RU full blocks reported since 2025-03-20 (net4people/bbs
-    #464) and CF ECH blocking since 2024-11-05 (net4people/bbs #417).
-    Domain-fronting through CF is no longer a survival path in RU.
+    ws-cf dropped from recommended: Cloudflare throttles Russian users
+    to ~16 KB per response (CF's own blog, 2025-06-09), with eastern-RU
+    full blocks reported since 2025-03-20 (net4people/bbs #464) and CF
+    ECH blocking since 2024-11-05 (net4people/bbs #417). Domain-fronting
+    through CF is no longer a survival path in RU.
 
-    Reality, ShadowTLS, and Hysteria2 still work; RKN/TSPU shifts
-    targets so urltest across the three remaining shapes is the
-    intended fallback strategy.
+    Reality, ShadowTLS, hy2 still work; RKN/TSPU shifts targets so the
+    documented escape hatch is the user manually flipping 🔀 Proxy in
+    the dashboard when the country default breaks (no urltest emitted).
+    AWG runs in a parallel Amnezia VPN tunnel for diversity matching the
+    actual deployed-by-Russians threat model.

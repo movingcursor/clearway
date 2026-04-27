@@ -43,9 +43,9 @@ PROFILES_SCHEMA = {
             'properties': {
                 'utls_fingerprint': {'type': 'string'},
                 'reality': {'type': 'object', 'required': ['server', 'server_port', 'handshake_sni', 'flow']},
-                'ws_cdn':  {'type': 'object', 'required': ['host', 'path', 'port']},
+                'ws-cf':   {'type': 'object', 'required': ['host', 'path', 'port']},
                 'shadowtls': {'type': 'object', 'required': ['server_port', 'version', 'sni', 'shadowsocks_method']},
-                'hysteria2': {'type': 'object', 'required': ['server_port', 'sni']},
+                'hy2':       {'type': 'object', 'required': ['server_port', 'sni']},
                 # Optional list of CIDRs (e.g. the server's public IPs) that
                 # should always route Direct from a client to avoid TUN
                 # hairpin loops on hy2's outer QUIC. Omit / leave empty for
@@ -78,7 +78,7 @@ PROFILES_SCHEMA = {
                             # protocols flips the per-user awg.conf emission
                             # and the server-side [Peer] block; nothing in
                             # the sing-box outbound list changes.
-                            'items': {'enum': ['reality', 'ws_cdn', 'shadowtls', 'hysteria2', 'awg']},
+                            'items': {'enum': ['reality', 'ws-cf', 'shadowtls', 'hy2', 'awg']},
                             'minItems': 1,
                         },
                         # Stage-3 hook: country-derived selector default can be
@@ -89,7 +89,7 @@ PROFILES_SCHEMA = {
                         # documented in the schema, not enforced, since stage 3
                         # will be the one wiring this into selector emission.
                         'preferred_protocol': {
-                            'enum': ['reality', 'ws_cdn', 'shadowtls', 'hysteria2', 'awg'],
+                            'enum': ['reality', 'ws-cf', 'shadowtls', 'hy2', 'awg'],
                         },
                         # Optional pin of the user's AWG IPv4 address (CIDR, /32
                         # convention). If omitted the renderer auto-allocates
@@ -290,7 +290,7 @@ HOME_COUNTRY = _load_home_countries()
 # therefore benefits from a per-user uTLS fingerprint (JA3/JA4
 # decorrelation across users). Hysteria2 is omitted: it runs over QUIC
 # with its own TLS impl and uTLS doesn't apply.
-TLS_PROTOCOLS = {'reality', 'ws_cdn', 'shadowtls'}
+TLS_PROTOCOLS = {'reality', 'ws-cf', 'shadowtls'}
 
 
 def _warn_unused_shadowtls_sni(users):
@@ -354,7 +354,7 @@ def _warn_unused_utls_fingerprint(users):
             continue
         print(f"warning: user {name!r} has 'utls_fingerprint' set but no "
               f"TLS-bearing protocol — field is unused (uTLS doesn't apply "
-              f"to hysteria2)",
+              f"to hy2)",
               file=sys.stderr)
 
 
@@ -504,7 +504,7 @@ def frag_inbound(device):
     return {'inbounds': [tun]}
 
 
-def frag_dns(countries, has_home, home_endpoint=None, bootstrap_ip='1.1.1.1', ws_cdn_host=None):
+def frag_dns(countries, has_home, home_endpoint=None, bootstrap_ip='1.1.1.1', ws_cf_host=None):
     """
     DNS block. A/AAAA → fakeip, everything else → cloudflare_doh.
 
@@ -525,9 +525,9 @@ def frag_dns(countries, has_home, home_endpoint=None, bootstrap_ip='1.1.1.1', ws
     a physical location inside one of those countries — see frag_dns
     call-site in compose().
 
-    `ws_cdn_host`: the Cloudflare-fronted hostname (defaults.ws_cdn.host)
-    that must resolve via bootstrap_dns BEFORE the tunnel is up (the WS-CDN
-    outbound needs the CF edge IP to dial). None = WS-CDN not in use; no
+    `ws_cf_host`: the Cloudflare-fronted hostname (defaults['ws-cf'].host)
+    that must resolve via bootstrap_dns BEFORE the tunnel is up (the ws-cf
+    outbound needs the CF edge IP to dial). None = ws-cf not in use; no
     bootstrap entry emitted.
     """
     # cloudflare_doh detour: 🌍 Default when Restricted exists (multi-region
@@ -556,7 +556,7 @@ def frag_dns(countries, has_home, home_endpoint=None, bootstrap_ip='1.1.1.1', ws
     # via cloudflare_doh once any proxy outbound is up (Reality/hy2/ShadowTLS
     # use IPs, so they bootstrap without DNS), which keeps the DDNS hostname
     # off the ISP's resolver.
-    bootstrap_domains = [ws_cdn_host] if ws_cdn_host else []
+    bootstrap_domains = [ws_cf_host] if ws_cf_host else []
 
     # Global threat/ad rejects (hagezi) plus any country-specific ones
     # (e.g. chocolate4u's iran-* lists when IR is enabled).
@@ -624,12 +624,12 @@ def frag_home_endpoint(home, device_wg):
         # fly for low-latency raw-WG. See frag_home_endpoint docstring.
         'detour': '🚇 Home Carrier',
         # MTU 1280 (was 1380). The 🏠 Home WG endpoint rides inside whichever
-        # proxy protocol 🔀 Proxy resolves to — ⚡ Fastest by default,
-        # Reality/hy2/ShadowTLS/WS-CDN if the user has pinned — so WG
-        # packets are double-encapsulated: TUN(1380) → outer proxy (TLS/QUIC
-        # overhead) → WG(outer). 1380 left no headroom for the outer layer and
-        # would silently fragment or PMTU-blackhole large TCP payloads over
-        # Home Egress. 1280 is the IPv6 minimum and safe for any nested path.
+        # protocol 🔀 Proxy resolves to (country-derived default, or the
+        # user's manual pick) — so WG packets are double-encapsulated:
+        # TUN(1380) → outer proxy (TLS/QUIC overhead) → WG(outer). 1380 left
+        # no headroom for the outer layer and would silently fragment or
+        # PMTU-blackhole large TCP payloads over Home Egress. 1280 is the
+        # IPv6 minimum and safe for any nested path.
         'mtu': home.get('mtu', 1280),
         'address': addr,
         'private_key': device_wg['private_key'],
@@ -669,7 +669,7 @@ def frag_outbound_reality(defaults, reality, fp=None):
     # runtime. Route rule below (in frag_route) rejects UDP/443 so QUIC
     # falls back to TCP cleanly across all outbounds.
     return {
-        'type': 'vless', 'tag': '🔐 Reality',
+        'type': 'vless', 'tag': 'reality',
         'server': d['server'], 'server_port': d['server_port'],
         'uuid': reality['uuid'],
         'flow': d['flow'],
@@ -682,8 +682,8 @@ def frag_outbound_reality(defaults, reality, fp=None):
     }
 
 
-def frag_outbound_ws_cdn(defaults, ws_cdn_uuid, fp=None):
-    d = defaults['ws_cdn']
+def frag_outbound_ws_cf(defaults, ws_cf_uuid, fp=None):
+    d = defaults['ws-cf']
     if fp is None:
         fp = defaults.get('utls_fingerprint', 'chrome')
     # ECH enabled: Cloudflare (the WS-CDN front host) publishes ECH configs
@@ -707,9 +707,9 @@ def frag_outbound_ws_cdn(defaults, ws_cdn_uuid, fp=None):
     # overhead without multiplex is negligible on modern CF edges. See
     # docs/hazards.md.
     return {
-        'type': 'vless', 'tag': '☁️ WS-CDN',
+        'type': 'vless', 'tag': 'ws-cf',
         'server': d['host'], 'server_port': d['port'],
-        'uuid': ws_cdn_uuid,
+        'uuid': ws_cf_uuid,
         'packet_encoding': 'xudp',
         'tls': {
             'enabled': True, 'server_name': d['host'],
@@ -750,7 +750,7 @@ def frag_outbound_shadowtls(defaults, stls_pw, user_ss_pw, fp=None, sni=None):
             },
         },
         {
-            'type': 'shadowsocks', 'tag': '👻 ShadowTLS',
+            'type': 'shadowsocks', 'tag': 'shadowtls',
             'server': defaults['reality']['server'], 'server_port': d['server_port'],
             'method': d['shadowsocks_method'], 'password': ss_pw,
             'detour': 'shadowtls-transport',
@@ -758,8 +758,8 @@ def frag_outbound_shadowtls(defaults, stls_pw, user_ss_pw, fp=None, sni=None):
     ]
 
 
-def frag_outbound_hysteria2(defaults, pw):
-    d = defaults['hysteria2']
+def frag_outbound_hy2(defaults, pw):
+    d = defaults['hy2']
     # Pin the server's self-signed hy2 cert by inlining its PEM lines into
     # tls.certificate (sing-box field is list-of-strings, one line each).
     # This replaces the old `insecure: true` trust mode — a network-path
@@ -783,7 +783,9 @@ def frag_outbound_hysteria2(defaults, pw):
     up_mbps = d.get('up_mbps', 30)
     down_mbps = d.get('down_mbps', 200)
     out = {
-        'type': 'hysteria2', 'tag': '🚀 Hysteria2',
+        # type stays 'hysteria2' — that's the upstream sing-box outbound type
+        # name (not our identifier). Tag is our short canonical 'hy2'.
+        'type': 'hysteria2', 'tag': 'hy2',
         'server': defaults['reality']['server'],
         'password': pw,
         'up_mbps': up_mbps,
@@ -792,12 +794,12 @@ def frag_outbound_hysteria2(defaults, pw):
         'tls': {'enabled': True, 'server_name': d['sni'], 'alpn': ['h3'],
                 'certificate': cert_lines},
     }
-    # Port-hopping. If defaults.hysteria2.server_ports is set, emit
+    # Port-hopping. If defaults.hy2.server_ports is set, emit
     # server_ports (a list of "low:high" range strings) and omit
     # server_port entirely — sing-box would otherwise dial server_port
     # first, defeating the per-IP UDP volume-marking mitigation that
     # port-hopping exists for. Server-side: a host iptables redirect
-    # collapses the range back to defaults.hysteria2.server_port.
+    # collapses the range back to defaults.hy2.server_port.
     # Without server_ports, behave as before (single-port). See
     # docs/hazards.md.
     server_ports = d.get('server_ports')
@@ -809,53 +811,84 @@ def frag_outbound_hysteria2(defaults, pw):
 
 
 def protocol_outbound_tags(protocols):
-    """Ordered list of the user-facing proxy outbound tags (input for ⚡ Fastest / 🔀 Proxy)."""
+    """Ordered list of the proxy outbound tags emitted by frag_outbounds.
+    AWG is intentionally excluded — it doesn't ride in the sing-box profile.
+    Tags are the canonical short identifiers from the protocol-naming
+    convention; selector outbounds reference them by these strings."""
     tags = []
-    if 'reality'   in protocols: tags.append('🔐 Reality')
-    if 'ws_cdn'    in protocols: tags.append('☁️ WS-CDN')
-    if 'shadowtls' in protocols: tags.append('👻 ShadowTLS')
-    if 'hysteria2' in protocols: tags.append('🚀 Hysteria2')
+    if 'reality'   in protocols: tags.append('reality')
+    if 'ws-cf'     in protocols: tags.append('ws-cf')
+    if 'shadowtls' in protocols: tags.append('shadowtls')
+    if 'hy2'       in protocols: tags.append('hy2')
     return tags
 
 
-def selector_urltest_url(device):
-    """Mobile uses gstatic.com/generate_204 (Android/iOS native reachability),
-    Windows same — keep uniform."""
-    return 'https://www.gstatic.com/generate_204'
+def proxy_selector_default(user, proxy_tags):
+    """
+    Pick the default value for the 🔀 Proxy selector. Order:
+      1. Per-user `preferred_protocol` if set AND it's actually emitted as
+         a sing-box outbound (i.e. it's in proxy_tags). 'awg' as a preferred
+         value is rejected at validation time elsewhere — AWG isn't a sing-box
+         outbound, so honoring it here would point the selector at a tag that
+         doesn't exist.
+      2. Single-country resident → that country's `protocols.default` from
+         data/countries/<iso>.yaml, IF the user has it enabled.
+      3. Fallback: 'hy2' if available (speed-first traveller default), else
+         the first tag in proxy_tags (just emit *something* deterministic).
+
+    Reasoning lives in docs/architecture.md (selector-default + manual escape
+    hatch). No urltest is emitted — the previous design's '⚡ Fastest' urltest
+    is gone, so the selector either lands on a working protocol via this
+    function or the user manually flips on connection failure.
+    """
+    if not proxy_tags:
+        # Should never happen — protocols list has minItems=1, and at least
+        # one of the four sing-box-native protocols is required when no AWG.
+        # If the user has only AWG, that's a profile-yaml-without-sing-box
+        # scenario, but render.py still has to emit *some* config; pick a
+        # placeholder that'd be obvious in dashboard if reached.
+        return '➡️ Direct'
+
+    pref = user.get('preferred_protocol')
+    if pref and pref in proxy_tags:
+        return pref
+
+    countries = user.get('countries') or []
+    if len(countries) == 1:
+        only_cc = countries[0]
+        cc_default = (COUNTRY.get(only_cc, {}).get('protocols') or {}).get('default')
+        if cc_default and cc_default in proxy_tags:
+            return cc_default
+
+    if 'hy2' in proxy_tags:
+        return 'hy2'
+    return proxy_tags[0]
 
 
 def frag_selectors(user, device, defaults):
     """
-    Build all selector + urltest outbounds. Controls which tags appear where.
+    Build all selector outbounds. As of stage 3 (the AWG rollout) the
+    renderer no longer emits any urltest outbound — the previous '⚡ Fastest'
+    urltest was the steady-state probe pattern that motivated swapping to
+    pure selector + manual fallback. The 🔀 Proxy selector picks a
+    country-derived default protocol; the user manually flips in the
+    dashboard if the default breaks. See docs/architecture.md.
     """
     countries = user['countries']
     protocols = user['protocols']
     has_home = 'home' in user
     proxy_tags = protocol_outbound_tags(protocols)
 
-    # ⚡ Fastest probes every enabled proxy protocol.
-    # Mobile configs historically use longer intervals to save battery.
-    interval = '10m' if device['type'] == 'mobile' else '5m'
-    tolerance = 150 if device['type'] == 'mobile' else 100
-    idle_timeout = '1h' if device['type'] == 'mobile' else '30m'
-
-    fastest = {
-        'tag': '⚡ Fastest', 'type': 'urltest',
-        'outbounds': proxy_tags,
-        'url': selector_urltest_url(device),
-        'interval': interval, 'tolerance': tolerance,
-        'idle_timeout': idle_timeout,
-        'interrupt_exist_connections': True,
-    }
-
-    # 🔀 Proxy: protocol chooser.
+    # 🔀 Proxy: protocol chooser. `default` is country-derived (see
+    # proxy_selector_default). All proxy_tags are listed as outbounds so the
+    # user can manually pick any enabled protocol from the dashboard.
     proxy_selector = {
         'tag': '🔀 Proxy', 'type': 'selector',
-        'outbounds': ['⚡ Fastest'] + proxy_tags,
-        'default': '⚡ Fastest',
+        'outbounds': list(proxy_tags),
+        'default': proxy_selector_default(user, proxy_tags),
     }
 
-    selectors = [fastest, proxy_selector]
+    selectors = [proxy_selector]
 
     # 🌍 Default — catch-all proxy selector. Listed before 🏠 Home Egress
     # because most users interact with Default far more often (it's the
@@ -964,11 +997,13 @@ def frag_outbounds(user, device, defaults):
         else:
             stls_sni = defaults['shadowtls']['sni']
 
-    # Protocol outbounds in canonical order.
+    # Protocol outbounds in canonical order. AWG is absent here by design —
+    # AmneziaWG never rides in the sing-box profile (separate Amnezia VPN
+    # app), see docs/architecture.md.
     if 'reality'   in user['protocols']: out.append(frag_outbound_reality(defaults, device['reality'], fp=fp))
-    if 'ws_cdn'    in user['protocols']: out.append(frag_outbound_ws_cdn(defaults, user['ws_cdn_uuid'], fp=fp))
+    if 'ws-cf'     in user['protocols']: out.append(frag_outbound_ws_cf(defaults, user['ws_cf_uuid'], fp=fp))
     if 'shadowtls' in user['protocols']: out.extend(frag_outbound_shadowtls(defaults, user['shadowtls_password'], user['shadowsocks_password'], fp=fp, sni=stls_sni))
-    if 'hysteria2' in user['protocols']: out.append(frag_outbound_hysteria2(defaults, user['hysteria2_password']))
+    if 'hy2'       in user['protocols']: out.append(frag_outbound_hy2(defaults, user['hy2_password']))
 
     # Selectors.
     out.extend(frag_selectors(user, device, defaults))
@@ -1005,12 +1040,9 @@ def frag_route(user, device, defaults):
 
     # download_detour = 🌍 Default so the ruleset fetch follows the user's
     # current top-level routing decision (Proxy when travelling, Direct when
-    # resident). Previously hard-pinned to ⚡ Fastest which a) required the
-    # urltest to have converged on a live proxy before first-boot could seed
-    # the blocklists, and b) prevented a resident who flipped Default→Direct
-    # from using their (fast, uncensored) ISP for the ruleset CDN fetch.
-    # jsdelivr.net is CloudFlare-fronted and usually direct-reachable
-    # outside CN/IR; tunnelling is still available for users who need it.
+    # resident). jsdelivr.net is CloudFlare-fronted and usually direct-
+    # reachable outside CN/IR; tunnelling is still available for users who
+    # need it.
     emitted_rulesets = []
     for rs in rule_sets:
         emitted_rulesets.append({
@@ -1042,10 +1074,10 @@ def frag_route(user, device, defaults):
         rules.append({'ip_cidr': proxy_server_ips, 'outbound': '➡️ Direct'})
     rules.extend([
         # Reject QUIC (UDP/443) globally for *client app* traffic. Reality-
-        # Vision, ShadowTLS, and VLESS+WS are all TCP-only transports; when
-        # ⚡ Fastest picks any of them, outbound UDP/443 silently black-holes
-        # (HTTP/3 hangs, browsers do the slow fallback to TCP after ~a
-        # second). Rejecting here forces the immediate fallback.
+        # Vision, ShadowTLS, and ws-cf are all TCP-only transports; when
+        # 🔀 Proxy resolves to any of them, outbound UDP/443 silently
+        # black-holes (HTTP/3 hangs, browsers do the slow fallback to TCP
+        # after ~a second). Rejecting here forces the immediate fallback.
         {'network': 'udp', 'port': 443, 'action': 'reject'},
         # Reject DoT (TCP/853). Android's "Private DNS" setting emits DoT
         # from the system resolver; under our auto_route+strict_route TUN
@@ -1161,16 +1193,23 @@ def render_user_readme(uname, user, defaults):
     """
     Generate a ready-to-send Markdown README for this user. Written from
     user's perspective (not admin's), covering setup for each device, the
-    dashboard secret if Windows, and a credentials summary at the end.
+    dashboard secret if Windows, the AWG section if AWG is enabled, and a
+    credentials summary at the end.
 
     Reads from the merged manifest (load_manifest already wired secrets +
     home_wg into user / device fields), so everything needed is already here.
+
+    Stage 3 changes: single-client recommendation (sing-box official only —
+    Hiddify-Next compat dropped, see docs/architecture.md), AWG section
+    appears only when 'awg' is in protocols, country-derived selector default
+    surfaced as plain text instead of "leave on ⚡ Fastest".
     """
     uname_cap = uname.capitalize()
     secret = user['secret']
     protocols = user.get('protocols', [])
     countries = user.get('countries', [])
     has_home = 'home' in user
+    has_awg = 'awg' in protocols
 
     # Device tables
     devices = user.get('devices', [])
@@ -1180,6 +1219,11 @@ def render_user_readme(uname, user, defaults):
     # Country + home summary lines
     country_labels = ', '.join(f"{COUNTRY[c]['flag']} {COUNTRY[c]['label']}" for c in countries)
     protocol_labels = ', '.join(protocols) if protocols else 'none'
+
+    # Resolve the country-derived selector default for the user-facing copy.
+    # Computed identically to proxy_selector_default so the README accurately
+    # reflects what the dashboard will show on first launch.
+    proxy_default_tag = proxy_selector_default(user, protocol_outbound_tags(protocols))
 
     # Device list
     device_lines = []
@@ -1205,8 +1249,23 @@ def render_user_readme(uname, user, defaults):
             "of the listed countries, flip to the matching flag so local traffic stays Direct."
         )
 
-    # Mobile section
-    mobile_section = f"""## Mobile setup
+    # Mobile install + profile import section. Sing-box official only —
+    # Hiddify-Next is explicitly NOT recommended (it overrides imported
+    # profile structure with its own urltest "Auto" mode, defeating the
+    # country-derived selector default this profile is built around).
+    mobile_section = f"""## Mobile (Android / iOS)
+
+### Step 1 — Install sing-box
+
+The official sing-box client. **Do not use Hiddify-Next** — it wraps imported
+profiles in its own auto-switcher, defeating the country-derived default this
+profile is built around (see Troubleshooting below).
+
+- **Android (Play Store)** — [io.nekohasekai.sfa](https://play.google.com/store/apps/details?id=io.nekohasekai.sfa) — free.
+- **iOS (App Store)** — [sing-box VT](https://apps.apple.com/us/app/sing-box-vt/id6673731168) — **$3.99 one-time** (one of the few paid clearway components; refundable through standard App Store flow if it doesn't work for you).
+- **Android (sideload)** — [SagerNet/sing-box-for-android releases](https://github.com/SagerNet/sing-box-for-android/releases). Download the APK, verify the SHA256 listed in the GitHub release notes against `sha256sum sing-box-android-*.apk` before installing. Use this only when the Play Store is unavailable in your region.
+
+### Step 2 — Import the profile
 
 **Recommended — remote profile URL (auto-updates):**
 
@@ -1295,10 +1354,10 @@ Get-Content "C:\\Program Files\\sing-box\\logs\\service.err.log" -Tail 30
         if d['type'] == 'windows':
             parts.append(f"clash secret `{d['clash_secret']}`")
         creds_lines.append(' — '.join(parts))
-    if 'ws_cdn' in protocols:
-        creds_lines.append(f"- **WS-CDN** UUID: `{user.get('ws_cdn_uuid')}` (shared across your devices)")
-    if 'hysteria2' in protocols:
-        creds_lines.append(f"- **Hysteria2** password: `{user.get('hysteria2_password')}`")
+    if 'ws-cf' in protocols:
+        creds_lines.append(f"- **ws-cf** UUID: `{user.get('ws_cf_uuid')}` (shared across your devices)")
+    if 'hy2' in protocols:
+        creds_lines.append(f"- **hy2** password: `{user.get('hy2_password')}`")
     if 'shadowtls' in protocols:
         creds_lines.append(f"- **ShadowTLS** password: `{user.get('shadowtls_password')}`")
         # SS-2022 multi-user EIH: client password is <server_psk>:<user_psk>.
@@ -1309,6 +1368,45 @@ Get-Content "C:\\Program Files\\sing-box\\logs\\service.err.log" -Tail 30
             f"(server:user)"
         )
     creds_block = '\n'.join(creds_lines)
+
+    # AWG section — only emitted when the user has 'awg' in protocols. Lives
+    # in a separate Amnezia VPN app rather than the sing-box profile (the
+    # two-app split is intentional; see docs/architecture.md). On iOS only
+    # one VPN profile is active at a time, so users tap to switch between
+    # sing-box and Amnezia VPN; Android allows both to coexist.
+    awg_section = ''
+    if has_awg:
+        awg_section = f"""## AmneziaWG (parallel resilience tunnel)
+
+Your profile includes an AmneziaWG (AWG) tunnel for protocol diversity. AWG
+runs as a *separate* VPN in the Amnezia VPN app — not via the sing-box
+client above. Use it when the sing-box-native protocols are blocked
+(typically RU/IR; AWG is what Russians are actually deploying against
+RKN/TSPU and what survives Iranian QUIC blackouts).
+
+### Step 1 — Install Amnezia VPN
+
+- **Android** — [amnezia-client GitHub releases](https://github.com/amnezia-vpn/amnezia-client/releases). Verify the SHA256 against the release notes before installing.
+- **iOS** — [Amnezia VPN App Store](https://apps.apple.com/app/amneziavpn/id1600529900) — free.
+
+### Step 2 — Import your AWG config
+
+Download your wg-quick config:
+
+```
+https://{PROFILE_HOST}/p/{secret}/awg.conf
+```
+
+In the Amnezia app: **+** → **From file/URL** → paste the URL or import the
+saved file. The app picks up the AWG obfuscation params automatically.
+
+### iOS caveat — only one VPN active at a time
+
+iOS allows exactly one VPN profile to be running. To switch between sing-box
+and Amnezia VPN: open the *other* app and start its VPN — iOS automatically
+deactivates the previous one. Android allows both VPNs to coexist on
+different network namespaces, no manual switching required.
+"""
 
     # Home egress block
     home_block = ''
@@ -1342,14 +1440,25 @@ Generated by the admin's renderer. Mirrors the live state of your profile; if so
 
 Your config exposes a few selectors you can flip in the sing-box app / metacubexd dashboard:
 
-- **🔀 Proxy** — which protocol to use. Leave on **⚡ Fastest** (auto-picks by latency) unless debugging.
+- **🔀 Proxy** — which protocol to use. Defaults to **{proxy_default_tag}** (the protocol best suited to your region — see *Manual fallback* below).
 - **🚨 Restricted** — how to treat traffic to the countries you cover. {restricted_default_explain}
 - **🔒 Trusted** — sensitive domains (banking, 1Password, Apple, Microsoft). Always tunneled by default.
 
 Changes apply instantly; no restart needed.
 
+### Manual fallback — what to do if everything stops working
+
+Your profile has **no auto-switching** between protocols. This is deliberate —
+the constant probing required for auto-switching is itself a fingerprint
+DPI systems can detect, so removing it tightens what censors see on the
+wire. The tradeoff: when your default protocol gets blocked, you flip
+**🔀 Proxy** by hand to a different protocol from the dropdown. The other
+protocols in your config are listed alongside the default, all ready to
+go — switching takes one tap. If none of them work, fall back to the AWG
+tunnel (separate Amnezia VPN app — see below) or message the admin.
+
 {mobile_section}
-{windows_section}
+{windows_section}{awg_section}
 
 ## Credentials (keep private)
 
@@ -1359,11 +1468,11 @@ Changes apply instantly; no restart needed.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Everything times out | Primary protocol blocked / probed | In the dashboard, change 🔀 Proxy from ⚡ Fastest to a specific protocol (e.g. ☁️ WS-CDN). |
+| Everything times out | Default protocol blocked / probed | In the dashboard, change 🔀 Proxy from **{proxy_default_tag}** to another protocol (the dropdown lists every one in your config). If all fail, switch to the AWG tunnel via the Amnezia VPN app. |
 | Local-country sites slow | 🚨 Restricted on 🌍 Default | Flip to your country flag for Direct routing. |
 | Tunnel connects but pages don't load | DNS cache after a mode change | Toggle VPN off / on once. |
 | PC: dashboard shows 404 | metacubexd not yet downloaded (first boot) | Wait 30 s, reload. |
-| Rule-sets fail on first start | Proxy not healthy at boot | Wait 30 s; they download on ⚡ Fastest's first successful probe. |
+| Rule-sets fail on first start | Proxy not healthy at boot | Wait 30 s; they download once 🔀 Proxy reaches its first usable protocol. |
 
 ---
 
@@ -1386,7 +1495,7 @@ def frag_experimental(device):
             'secret': device['clash_secret'],
             'external_ui': 'metacubexd',
             'external_ui_download_url': 'https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip',
-            'external_ui_download_detour': '⚡ Fastest',
+            'external_ui_download_detour': '🔀 Proxy',
         }
     return {'experimental': exp}
 
@@ -1417,9 +1526,9 @@ def compose(user, device, defaults):
             bootstrap_ip = override
     # WS-CDN host needs pre-tunnel resolution; pass it only if this user has
     # WS-CDN enabled, otherwise no bootstrap entry is needed.
-    ws_cdn_host = defaults.get('ws_cdn', {}).get('host') if 'ws_cdn' in user.get('protocols', []) else None
+    ws_cf_host = defaults.get('ws-cf', {}).get('host') if 'ws-cf' in user.get('protocols', []) else None
     cfg.update(frag_dns(user['countries'], has_home, home_endpoint=home_endpoint,
-                        bootstrap_ip=bootstrap_ip, ws_cdn_host=ws_cdn_host))
+                        bootstrap_ip=bootstrap_ip, ws_cf_host=ws_cf_host))
     if has_home and device.get('home_wg'):
         cfg.update(frag_home_endpoint(user['home'], device['home_wg']))
     cfg.update(frag_inbound(device))
@@ -1826,10 +1935,10 @@ def _autogen_missing(sfile, manifest):
                 changed.append(f'  gen {uname}.{label or field} = {s_user[field]}')
 
         need('secret', lambda: secrets.token_hex(16))
-        if 'ws_cdn' in protocols:
-            need('ws_cdn_uuid', lambda: str(uuid.uuid4()))
-        if 'hysteria2' in protocols:
-            need('hysteria2_password', lambda: secrets.token_urlsafe(22))
+        if 'ws-cf' in protocols:
+            need('ws_cf_uuid', lambda: str(uuid.uuid4()))
+        if 'hy2' in protocols:
+            need('hy2_password', lambda: secrets.token_urlsafe(22))
         if 'shadowtls' in protocols:
             need('shadowtls_password', lambda: secrets.token_urlsafe(24))
             # Per-user SS-2022 PSK (multi-user EIH mode). The server-level PSK
@@ -2198,8 +2307,8 @@ def load_manifest(auto_yes=False):
     # only need the public half).
     if 'reality_private_key' in shared:
         manifest['defaults']['reality']['private_key'] = shared['reality_private_key']
-    if 'hysteria2_obfs_salamander_password' in shared:
-        manifest['defaults']['hysteria2']['obfs_salamander_password'] = shared['hysteria2_obfs_salamander_password']
+    if 'hy2_obfs_salamander_password' in shared:
+        manifest['defaults']['hy2']['obfs_salamander_password'] = shared['hy2_obfs_salamander_password']
     manifest['defaults']['shadowtls']['shadowsocks_password'] = shared['shadowsocks_password']
     # Surface the server clash_api secret in defaults so render_server_text
     # can substitute it into the template without needing the full manifest.
@@ -2257,7 +2366,7 @@ def load_manifest(auto_yes=False):
         # surfaces on user dicts whose protocols actually include 'awg'; the
         # _validate_awg_block check above already failed if a user has 'awg'
         # but no key, so a missing field here means the user just doesn't use AWG.
-        for field in ('secret', 'ws_cdn_uuid', 'hysteria2_password',
+        for field in ('secret', 'ws_cf_uuid', 'hy2_password',
                       'shadowtls_password', 'shadowsocks_password',
                       'awg_private_key', 'notify_webhook'):
             if field in s_user:
@@ -2365,7 +2474,7 @@ def manifest_server_view(manifest):
     config template expects. Order is stable (users appear in manifest order).
     """
     flow = manifest['defaults']['reality']['flow']
-    shadowtls, shadowsocks, hysteria2, reality_users, short_ids, vless_ws = [], [], [], [], [], []
+    shadowtls, shadowsocks, hy2, reality_users, short_ids, ws_cf = [], [], [], [], [], []
 
     for uname, user in manifest['users'].items():
         protocols = user.get('protocols', [])
@@ -2375,10 +2484,10 @@ def manifest_server_view(manifest):
             # Parallels shadowtls_users — same set of users, different secret.
             if user.get('shadowsocks_password'):
                 shadowsocks.append({'name': uname, 'password': user['shadowsocks_password']})
-        if 'hysteria2' in protocols and user.get('hysteria2_password'):
-            hysteria2.append({'name': uname, 'password': user['hysteria2_password']})
-        if 'ws_cdn' in protocols and user.get('ws_cdn_uuid'):
-            vless_ws.append({'name': uname, 'uuid': user['ws_cdn_uuid']})
+        if 'hy2' in protocols and user.get('hy2_password'):
+            hy2.append({'name': uname, 'password': user['hy2_password']})
+        if 'ws-cf' in protocols and user.get('ws_cf_uuid'):
+            ws_cf.append({'name': uname, 'uuid': user['ws_cf_uuid']})
         if 'reality' in protocols:
             for dev in user.get('devices', []):
                 reality_users.append({
@@ -2391,10 +2500,10 @@ def manifest_server_view(manifest):
     return {
         'shadowtls_users': shadowtls,
         'shadowsocks_users': shadowsocks,
-        'hysteria2_users': hysteria2,
+        'hy2_users': hy2,
         'reality_users': reality_users,
         'reality_short_ids': short_ids,
-        'ws_cdn_users': vless_ws,
+        'ws_cf_users': ws_cf,
     }
 
 
@@ -2406,10 +2515,10 @@ def server_view(server_config):
     view = {
         'shadowtls_users': [],
         'shadowsocks_users': [],
-        'hysteria2_users': [],
+        'hy2_users': [],
         'reality_users': [],
         'reality_short_ids': [],
-        'ws_cdn_users': [],
+        'ws_cf_users': [],
     }
     if not server_config:
         return view
@@ -2419,13 +2528,13 @@ def server_view(server_config):
             view['shadowtls_users'] = ib.get('users', [])
         elif tag == 'shadowsocks-in':
             view['shadowsocks_users'] = ib.get('users', [])
-        elif tag == 'hysteria2-in':
-            view['hysteria2_users'] = ib.get('users', [])
+        elif tag == 'hy2-in':
+            view['hy2_users'] = ib.get('users', [])
         elif tag == 'reality-in':
             view['reality_users'] = ib.get('users', [])
             view['reality_short_ids'] = ib.get('tls', {}).get('reality', {}).get('short_id', [])
-        elif tag == 'vless-ws-in':
-            view['ws_cdn_users'] = ib.get('users', [])
+        elif tag == 'ws-cf-in':
+            view['ws_cf_users'] = ib.get('users', [])
     return view
 
 
@@ -2436,8 +2545,8 @@ def _now_iso():
 def load_pending_rotations():
     """Load the rotation state file. Returns a dict of lists per credential kind."""
     blank = {
-        'shadowtls_users': [], 'shadowsocks_users': [], 'hysteria2_users': [],
-        'reality_users': [], 'reality_short_ids': [], 'ws_cdn_users': [],
+        'shadowtls_users': [], 'shadowsocks_users': [], 'hy2_users': [],
+        'reality_users': [], 'reality_short_ids': [], 'ws_cf_users': [],
     }
     if not PENDING_ROTATIONS.exists():
         return blank
@@ -2477,9 +2586,9 @@ def _item_key(kind, item):
     """
     if kind == 'reality_short_ids':
         return item  # string
-    if kind in ('shadowtls_users', 'shadowsocks_users', 'hysteria2_users'):
+    if kind in ('shadowtls_users', 'shadowsocks_users', 'hy2_users'):
         return ('password', item.get('password'))
-    if kind in ('reality_users', 'ws_cdn_users'):
+    if kind in ('reality_users', 'ws_cf_users'):
         return ('uuid', item.get('uuid'))
     return json.dumps(item, sort_keys=True)
 
@@ -2600,10 +2709,10 @@ def render_server_text(merged_view, defaults):
         '__VNIC_SECONDARY_IP__': host_env['VNIC_SECONDARY_IP'],
         '__USERS_SHADOWTLS__':   _fmt_json_array_for_template(merged_view['shadowtls_users'], indent=8),
         '__USERS_SHADOWSOCKS__': _fmt_json_array_for_template(merged_view['shadowsocks_users'], indent=8),
-        '__USERS_HYSTERIA2__':   _fmt_json_array_for_template(merged_view['hysteria2_users'], indent=8),
-        '__USERS_REALITY__':    _fmt_json_array_for_template(merged_view['reality_users'],   indent=8),
+        '__USERS_HY2__':         _fmt_json_array_for_template(merged_view['hy2_users'], indent=8),
+        '__USERS_REALITY__':     _fmt_json_array_for_template(merged_view['reality_users'],   indent=8),
         '__SHORT_IDS_REALITY__': _fmt_json_array_for_template(merged_view['reality_short_ids'], indent=12),
-        '__USERS_VLESS_WS__':   _fmt_json_array_for_template(merged_view['ws_cdn_users'],    indent=8),
+        '__USERS_WS_CF__':       _fmt_json_array_for_template(merged_view['ws_cf_users'],    indent=8),
         # Scalar values from defaults (profiles.yaml) — single source of truth
         # for SNIs, obfs password, etc. Changing any of these in profiles.yaml
         # propagates to both client configs and the server on --server-apply.
@@ -2613,8 +2722,8 @@ def render_server_text(merged_view, defaults):
         # generates a new pair and writes both halves atomically.
         '__REALITY_PRIVATE_KEY__':      defaults['reality']['private_key'],
         '__SHADOWTLS_SNI__':            defaults['shadowtls']['sni'],
-        '__HYSTERIA2_SNI__':            defaults['hysteria2']['sni'],
-        '__HYSTERIA2_OBFS_PASSWORD__':  defaults['hysteria2']['obfs_salamander_password'],
+        '__HY2_SNI__':                  defaults['hy2']['sni'],
+        '__HY2_OBFS_PASSWORD__':        defaults['hy2']['obfs_salamander_password'],
         '__SHADOWSOCKS_PASSWORD__':     defaults['shadowtls']['shadowsocks_password'],
         # Server-side clash_api auth secret (auto-gen'd into shared.server_clash_secret).
         '__SERVER_CLASH_SECRET__':      defaults['server_clash_secret'],

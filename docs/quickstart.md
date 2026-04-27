@@ -82,7 +82,7 @@ EOF
 sudo sysctl --system
 ```
 
-## 2. Generate the hysteria2 cert
+## 2. Generate the hy2 cert
 
 ```sh
 cd singbox-server
@@ -96,7 +96,7 @@ chown $(id -u):$(id -g) hy2.{crt,key}
 cd ..
 ```
 
-`cloud.example.com` here matches what you'll set as `defaults.hysteria2.sni`
+`cloud.example.com` here matches what you'll set as `defaults.hy2.sni`
 in `profiles.yaml` next. Both must agree — clients pin the cert by PEM
 *and* validate hostname against `tls.server_name`. See [hazard #1](hazards.md#1-hy2-self-signed-cert-must-have-subjectaltname-not-just-cn).
 
@@ -111,11 +111,11 @@ Open `profiles.yaml` and edit:
 
 - `defaults.reality.server` — your VPS public IP.
 - `defaults.reality.handshake_sni` — your verified TLS-1.3 cover host.
-- `defaults.ws_cdn.host` — `vpnws.<your-domain>`.
+- `defaults['ws-cf'].host` — `vpnws.<your-domain>`.
 - `defaults.shadowtls.sni` — your ShadowTLS cover host (typically same as
-  `defaults.hysteria2.sni`; both should match the hy2 cert SAN if you want
-  to share one cover identity).
-- `defaults.hysteria2.sni` — must match the hy2 cert CN/SAN above.
+  `defaults.hy2.sni`; both should match the hy2 cert SAN if you want to
+  share one cover identity).
+- `defaults.hy2.sni` — must match the hy2 cert CN/SAN above.
 - (Optional) `defaults.proxy_server_ips` — only set if you have multiple
   public IPs / multiple servers. Single-VPS deployments leave it empty.
 - `users.*` — replace `alice`/`bob`/`dave` with your actual users. See

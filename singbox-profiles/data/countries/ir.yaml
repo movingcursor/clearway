@@ -1,6 +1,7 @@
 # Iran. National firewall is more aggressive on QUIC and on
-# TLS-with-uncommon-SNIs than CN/RU. WS-CDN through Cloudflare is the
-# most consistently reliable path.
+# TLS-with-uncommon-SNIs than CN/RU. ShadowTLS+SS-2022 is the most
+# consistently reliable sing-box-native path post-2025-shutdown;
+# AWG (separate Amnezia VPN app) is the recommended parallel tunnel.
 flag: 🇮🇷
 label: IR
 
@@ -37,18 +38,25 @@ dns_reject_rulesets:
   - { tag: iran-ads,      url: https://cdn.jsdelivr.net/gh/chocolate4u/Iran-sing-box-rules@rule-set/geosite-category-ads-all.srs, update_interval: 1d }
 
 protocols:
-  recommended: [shadowtls, ws_cdn]
+  recommended: [shadowtls, ws-cf, awg]
+  # Country default for the 🔀 Proxy selector. shadowtls — the most
+  # consistent surviving sing-box-native path in IR (per Jigsaw +
+  # net4people summaries, blocking it would break government TLS
+  # dependencies). Reality is not viable as a default since MCI/TCI
+  # block Reality server IPs within hours; ws-cf survives on some ISPs
+  # but is unreliable. AWG runs as a parallel Amnezia VPN tunnel.
+  default: shadowtls
   notes: |
     Reality dropped: MCI/TCI block Reality server IPs within hours of
     detection (Xray-core #2451, #3269); the 2025 "stealth blackout"
     tightened the protocol whitelist further. Reality is not a viable
     primary in IR.
 
-    Hysteria2 dropped: QUIC is disabled on all Iranian ISPs as of the
-    June 2025 shutdown — unidentified UDP is dropped on most networks,
+    hy2 dropped: QUIC is disabled on all Iranian ISPs as of the June
+    2025 shutdown — unidentified UDP is dropped on most networks,
     MCI/TCI tear down QUIC after 2-3 packets (net4people/bbs #489).
 
     ShadowTLS+SS2022 is the most consistent surviving path: per Jigsaw
     and net4people summaries, blocking it would break government TLS
-    dependencies. WS-CDN is unreliable post-blackout but kept as a
+    dependencies. ws-cf is unreliable post-blackout but kept as a
     secondary because state varies by ISP.

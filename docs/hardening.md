@@ -96,7 +96,7 @@ These are out of scope for clearway. If you need them, build them
 alongside.
 
 - **Per-user bandwidth caps** at the sing-box layer (sing-box doesn't
-  support it — see [hazards.md #7](hazards.md#7-sing-box-has-no-per-user-hysteria2-bandwidth-caps)).
+  support it — see [hazards.md #7](hazards.md#7-sing-box-has-no-per-user-hy2-bandwidth-caps)).
 - **Audit logging** of which user opened which connection (sing-box logs
   user names per connection; if you want a SIEM-style audit trail, point
   the container's stderr at a log shipper — promtail/Vector/Fluentbit

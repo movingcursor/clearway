@@ -120,7 +120,7 @@
     },
     {
       "type": "vless",
-      "tag": "🔐 Reality",
+      "tag": "reality",
       "server": "198.51.100.10",
       "server_port": 443,
       "uuid": "00000000-0000-4000-8000-000000000102",
@@ -141,7 +141,7 @@
     },
     {
       "type": "vless",
-      "tag": "☁️ WS-CDN",
+      "tag": "ws-cf",
       "server": "vpnws.example.com",
       "server_port": 443,
       "uuid": "00000000-0000-4000-8000-000000000001",
@@ -183,7 +183,7 @@
     },
     {
       "type": "shadowsocks",
-      "tag": "👻 ShadowTLS",
+      "tag": "shadowtls",
       "server": "198.51.100.10",
       "server_port": 8443,
       "method": "2022-blake3-aes-256-gcm",
@@ -192,7 +192,7 @@
     },
     {
       "type": "hysteria2",
-      "tag": "🚀 Hysteria2",
+      "tag": "hy2",
       "server": "198.51.100.10",
       "password": "TEST_HY2_PW_ALICE_____",
       "up_mbps": 30,
@@ -218,31 +218,15 @@
       "server_port": 443
     },
     {
-      "tag": "⚡ Fastest",
-      "type": "urltest",
-      "outbounds": [
-        "🔐 Reality",
-        "☁️ WS-CDN",
-        "👻 ShadowTLS",
-        "🚀 Hysteria2"
-      ],
-      "url": "https://www.gstatic.com/generate_204",
-      "interval": "5m",
-      "tolerance": 100,
-      "idle_timeout": "30m",
-      "interrupt_exist_connections": true
-    },
-    {
       "tag": "🔀 Proxy",
       "type": "selector",
       "outbounds": [
-        "⚡ Fastest",
-        "🔐 Reality",
-        "☁️ WS-CDN",
-        "👻 ShadowTLS",
-        "🚀 Hysteria2"
+        "reality",
+        "ws-cf",
+        "shadowtls",
+        "hy2"
       ],
-      "default": "⚡ Fastest"
+      "default": "hy2"
     },
     {
       "tag": "🌍 Default",
@@ -560,7 +544,7 @@
       "secret": "testclashalilaptop00000000000000000000000000",
       "external_ui": "metacubexd",
       "external_ui_download_url": "https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip",
-      "external_ui_download_detour": "⚡ Fastest"
+      "external_ui_download_detour": "🔀 Proxy"
     }
   }
 }

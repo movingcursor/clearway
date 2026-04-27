@@ -90,7 +90,7 @@ it may also be a sing-box-side smux regression that only surfaces under
 CF-added latency. We didn't dig further because removal is the cheap fix.
 
 **Fix.** Don't enable `multiplex` on a VLESS-over-WS outbound that goes
-through Cloudflare. The renderer disables it in `frag_outbound_ws_cdn` by
+through Cloudflare. The renderer disables it in `frag_outbound_ws_cf` by
 default with a block comment explaining why. The per-request handshake
 overhead without multiplex is negligible on modern CF edges (a few ms per
 new VLESS stream for the WS round-trip). Server-side `multiplex.enabled:
@@ -182,7 +182,7 @@ sequence them after the bypass).
 
 ---
 
-## 7. sing-box has no per-user Hysteria2 bandwidth caps
+## 7. sing-box has no per-user hy2 bandwidth caps
 
 **Symptom.** You want "one stolen credential can't saturate the uplink" as
 a defensive measure. sing-box's hy2 inbound `users[]` schema is exactly
@@ -278,7 +278,7 @@ heuristic.
 Three coordinated parts:
 
 1. **Manifest.** Add `server_ports: ["20000:30000"]` to
-   `defaults.hysteria2` in `profiles.yaml`. The renderer emits
+   `defaults.hy2` in `profiles.yaml`. The renderer emits
    `server_ports` *instead of* `server_port` when this is set
    (sing-box's hy2 outbound dials `server_port` first if both are
    present, defeating the spread).

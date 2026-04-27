@@ -171,16 +171,16 @@ item, not a default. Re-evaluate ~every 6 months.
 
 **Out of scope:**
 
-- Active DPI that physically blocks the destination IP. WS-CDN through
+- Active DPI that physically blocks the destination IP. ws-cf through
   Cloudflare is the only inbound that survives "the proxy IP is
   blackholed" — keep your Cloudflare zone working and make sure
-  `defaults.ws_cdn.host` is reachable.
+  `defaults['ws-cf'].host` is reachable.
 - Endpoint compromise. If a user's device is rooted or has malware, none
   of this protects them.
 - Anonymity. This routes traffic through your VPS — the VPS sees every
   destination. Use Tor over Clearway if you also want anonymity.
 - Per-user bandwidth caps at the sing-box layer
-  ([hazards.md #7](docs/hazards.md#7-sing-box-has-no-per-user-hysteria2-bandwidth-caps)).
+  ([hazards.md #7](docs/hazards.md#7-sing-box-has-no-per-user-hy2-bandwidth-caps)).
 
 ## Contributing
 
