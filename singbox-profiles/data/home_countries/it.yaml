@@ -1,0 +1,49 @@
+# Home-country routing extras for Italy. Loaded by render.py whenever a
+# user has `home: { country: it, ... }`. Applied automatically — no
+# per-user manifest opt-in needed; merely setting `home.country: it` picks
+# it up. Mirrors the loader pattern used by data/countries/<iso>.yaml but
+# the semantics are different: countries/ files describe *restricted*
+# countries (gfwlist-style routing); home_countries/ files describe extras
+# tied to where a user physically lives (egress-side concerns).
+#
+# vowifi: VoWiFi (Wi-Fi calling) ePDG routing. Italian carriers run their
+# own ePDG endpoints and the IPSec tunnel will only terminate when the
+# device dials them from an Italian source IP — the four MNOs all geo-block
+# their ePDG. Routing the 3gppnetwork.org domain plus each MNO's ePDG CIDR
+# block to 🏠 Home Egress makes Wi-Fi calling work for travellers (e.g.
+# Eric in CN → ePDG sees Italian source IP via home WG → IPSec tunnel
+# comes up → calls and SMS ride VoWiFi end-to-end).
+#
+# Two-rule design:
+#   - domain rule auto-picks up any future MVNO that launches its own ePDG,
+#     plus future regional `sos.epdg.*` subdomains.
+#   - ip_cidr rule is the fallback for iOS carrier-config bundles which
+#     hardcode ePDG IPs and bypass DNS lookup entirely (Apple in particular
+#     has been observed dialing the IPs directly out of the bundled plist).
+#
+# Italy has four MNOs running their own ePDG; everyone else (PosteMobile,
+# Lyca, Digi, BT Italia, Welcome Italia, …) is an MVNO that piggybacks on
+# its host network's gateway, so covering the four parents covers the
+# entire country. Vodafone's wider /17 is the only "loose" entry — it's
+# the registered RIPE inetnum (VODAFONE-IT) and the cost of catching a
+# few unrelated Vodafone consumer IPs by mistake is essentially zero
+# since this only applies to packets originating from the device behind
+# the home_wg gateway. The other three are tight observed-cluster /24s.
+#
+# Resilience model: re-resolution is not automated. If a carrier moves
+# its ePDG outside the listed CIDR, the domain rule still catches it on
+# first DNS-driven dial (which is the common case); only iOS carrier-
+# bundle traffic (IP-direct, DNS-bypassing) would miss until the CIDR
+# entry below is updated. As of 2026-04-26, Italian MNO ePDGs are:
+#   TIM         (MNC 001):    A 217.200.184.{104,107,114}
+#   Vodafone IT (MNC 010):    A 91.81.133.{32,33}     (MNC 006 is GeoDNS-poisoned, ignore)
+#   Wind Tre    (MNC 088,099):A 151.58.176.{2-8,129-136,144-145}
+#   Iliad       (MNC 050):    A 83.158.8.{11,12}
+# No AAAA records — IPv4 only.
+vowifi:
+  domain_suffix: [3gppnetwork.org]
+  ip_cidr:
+    - 217.200.184.0/24      # TIM            (MNC 001) — observed cluster
+    - 91.81.128.0/17        # Vodafone IT    (MNC 010) — RIPE inetnum VODAFONE-IT
+    - 151.58.176.0/24       # Wind Tre       (MNC 088, 099) — observed block
+    - 83.158.8.0/24         # Iliad          (MNC 050) — observed cluster
