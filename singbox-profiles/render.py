@@ -161,13 +161,6 @@ def _validate_manifest_schema(manifest):
         sys.exit(f'profiles.yaml schema error at {loc}: {e.message}')
 
 
-# Public hostname that serves per-user profile directories under /p/<secret>/.
-# Used in README URLs, the Windows installer one-liner, and secrets.txt header.
-# Set via the PROFILE_HOST env var (or repo-level .env). To change it: update
-# the env var, the Traefik Host() rule in singbox-server/compose.yaml, and the
-# DNS A record, then re-run ./render.py to regenerate READMEs + installers.
-PROFILE_HOST = os.environ.get('PROFILE_HOST', 'profile.example.com')
-
 ROOT = Path(__file__).parent.resolve()
 MANIFEST = ROOT / 'profiles.yaml'
 SECRETS = ROOT / '.secrets.yaml'     # credentials (auto-managed, 0600)
@@ -190,6 +183,37 @@ SERVER_RESTART = SERVER_DIR / 'safe-restart.sh'
 # override via CLEARWAY_ENV_FILE. Process-env always wins so docker-compose
 # --env-file passes through transparently.
 ENV_FILE = Path(os.environ.get('CLEARWAY_ENV_FILE', str(ROOT.parent / '.env')))
+
+
+def _env_or_dotenv(key, default=None):
+    """Resolve a single env var: process env first, then repo-level .env file,
+    else `default`. Used by config-init paths that need to pick up vars set in
+    .env even when render.py wasn't invoked with the env exported (e.g. a bare
+    `python3 render.py` from any shell). _read_env is the strict variant for
+    required vars; this is the optional-with-fallback variant."""
+    if key in os.environ:
+        return os.environ[key]
+    if ENV_FILE.exists():
+        for raw in ENV_FILE.read_text().splitlines():
+            line = raw.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            k, _, v = line.partition('=')
+            if k.strip() == key:
+                return v.strip().strip('"').strip("'")
+    return default
+
+
+# Public hostname that serves per-user profile directories under /p/<secret>/.
+# Used in README URLs, the Windows installer one-liner, and secrets.txt header.
+# Resolved with .env fallback (matches the pattern other host-wide vars use)
+# so a bare `python3 render.py` from any shell picks up the right value
+# without needing the operator to remember to export PROFILE_HOST first —
+# previously the absence of the env var silently rendered URLs against
+# `profile.example.com`. To change it: update PROFILE_HOST in the repo-level
+# .env, the Traefik Host() rule in singbox-server/compose.yaml, and the DNS
+# A record, then re-run ./render.py to regenerate READMEs + installers.
+PROFILE_HOST = _env_or_dotenv('PROFILE_HOST', 'profile.example.com')
 
 
 def _read_env(keys):
