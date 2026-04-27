@@ -28,9 +28,9 @@ public IP at this stack and start serving real users.
 - [ ] **Cloud-provider firewall.** The container hardening doesn't help
   if you accidentally leave random ports open at the cloud-network layer.
   - **Oracle Cloud:** edit the VCN's security list / NSG so only
-    `22/tcp` (SSH), `443/tcp` (Reality + WS-CDN), `443/udp` (Hysteria2),
-    `8443/tcp` (ShadowTLS) are reachable from `0.0.0.0/0`. Lock SSH to
-    your home IP if practical.
+    `22/tcp` (SSH), `443/tcp` (Reality + ws-cf), `443/udp` (hy2),
+    `8443/tcp` (ShadowTLS), and (if AWG enabled) `51820/udp` (AWG) are
+    reachable from `0.0.0.0/0`. Lock SSH to your home IP if practical.
   - **AWS:** same, via the VPC Security Group attached to the instance.
   - **GCP:** same, via firewall rules attached to the VPC.
   - **Hetzner / Scaleway / DO / etc.:** equivalent firewall panel in the
@@ -44,6 +44,8 @@ public IP at this stack and start serving real users.
   sudo ufw allow 443/tcp
   sudo ufw allow 443/udp
   sudo ufw allow 8443/tcp
+  # If AWG is enabled (any user has 'awg' in profiles.yaml protocols):
+  sudo ufw allow 51820/udp
   sudo ufw enable
   ```
   Verify: `sudo ufw status verbose`. Cloud firewall + host firewall
@@ -88,7 +90,45 @@ public IP at this stack and start serving real users.
   bug/security fixes. `singbox-server/bump-singbox-image.sh` validates
   the new image with `sing-box check` before swapping the digest pin.
   Run it monthly via cron (the quickstart has the line). Skipping bumps
-  for >6 months means missing real CVEs.
+  for >6 months means missing real CVEs. If you have AWG enabled, run
+  `awg-server/bump-image.sh` on the same cadence — fewer releases but
+  the same supply-chain risk.
+
+## awg-server (only if AWG enabled)
+
+awg-server runs `amneziavpn/amneziawg-go`, the official Amnezia upstream
+image. Userspace WireGuard fundamentally needs `NET_ADMIN` to manage the
+TUN device + iptables NAT rules — there's no way to drop that capability
+without breaking the daemon. This is the only container in clearway with
+`NET_ADMIN`.
+
+Compensating hardenings (already enforced in `awg-server/compose.yaml`):
+
+- **Image digest pin.** `amneziavpn/amneziawg-go:latest@sha256:<index-digest>`.
+  A Docker Hub credential compromise can't silently push a backdoor; bumps
+  go through `awg-server/bump-image.sh` (resolves via
+  `docker buildx imagetools inspect`, validates pull, then `safe-restart`).
+- **Read-only root filesystem.** Daemon writes only to `/run` (tmpfs).
+- **Narrow port exposure.** UDP/51820 only, bound to `${VNIC_SECONDARY_IP}`
+  (not `0.0.0.0`). Single-VNIC deployments can set this to the host's
+  primary IP if separation isn't available.
+- **`no-new-privileges`** + **`mem_limit: 256m`** + **`cpus: 0.5`**.
+- **Opt-in compose profile.** awg-server is only started when the
+  operator passes `--profile awg-server` (or `--profile vpn` / `--profile
+  all`); it stays off on deployments without AWG users.
+
+The compensating-controls bundle plus the digest pin makes the residual
+risk roughly equivalent to the singbox-server container's risk surface,
+even though `cap_drop: [ALL]` isn't viable here.
+
+**Architecture caveat — amneziavpn/amneziawg-go is amd64-only as of
+2026-04.** ARM hosts (Oracle Ampere, Raspberry Pi) currently can't pull
+the upstream image. Either build the daemon from source (the upstream
+repo at github.com/amnezia-vpn/amneziawg-go has a Dockerfile that builds
+on ARM) and pin the resulting image's digest in `awg-server/compose.yaml`,
+or skip AWG until upstream ships a multi-arch image. **Do not** swap in a
+random community-maintained ARM image — it defeats the digest-pin
+discipline. See [hazards.md](hazards.md).
 
 ## Things specifically NOT in scope
 
