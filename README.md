@@ -251,6 +251,20 @@ Stands on the shoulders of:
 
 - [SagerNet/sing-box](https://github.com/SagerNet/sing-box) — the protocol
   multiplexer this all runs on.
+- [WireGuard](https://www.wireguard.com/) (Jason A. Donenfeld) — the base
+  tunnel protocol AmneziaWG extends.
+- [Amnezia VPN](https://amnezia.org/) (the [amnezia-vpn](https://github.com/amnezia-vpn)
+  org) — three components clearway depends on directly:
+  [amneziawg-go](https://github.com/amnezia-vpn/amneziawg-go) (the userspace
+  daemon awg-server runs),
+  [amneziawg-tools](https://github.com/amnezia-vpn/amneziawg-tools) (the
+  `awg` CLI used to load the obfuscation parameters), and the
+  [Amnezia VPN client apps](https://github.com/amnezia-vpn/amnezia-client)
+  on Android / iOS / desktop that import the per-user `.conf` files. The
+  protocol design — junk packets pre-handshake (Jc/Jmin/Jmax), padded
+  init/response (S1/S2), custom magic headers (H1-H4) — is what makes
+  AmneziaWG usable in CN/RU/IR where vanilla WireGuard is fingerprinted
+  and blocked.
 - [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat) —
   the CN geosite/geoip rule-sets and the GFW geosite list used for split
   routing in the CN profile.
