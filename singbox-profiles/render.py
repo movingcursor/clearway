@@ -221,6 +221,25 @@ def _load_countries():
 COUNTRY = _load_countries()
 
 
+# Home-country metadata. Each ISO-2 home country MAY have a file at
+# `data/home_countries/<iso>.yaml` carrying egress-side extras tied to
+# physically living there (today: VoWiFi ePDG routing for Italy). Keyed
+# by user.home.country and applied automatically — no per-user manifest
+# opt-in. Empty dict for ISO codes without a file is the no-op default,
+# so adding a new home country requires no render.py change.
+def _load_home_countries():
+    out = {}
+    home_dir = ROOT / 'data' / 'home_countries'
+    if not home_dir.exists():
+        return out
+    for path in sorted(home_dir.glob('*.yaml')):
+        iso = path.stem
+        out[iso] = yaml.safe_load(path.read_text()) or {}
+    return out
+
+HOME_COUNTRY = _load_home_countries()
+
+
 # Protocols whose outbound speaks TLS through Go's crypto/tls and
 # therefore benefits from a per-user uTLS fingerprint (JA3/JA4
 # decorrelation across users). Hysteria2 is omitted: it runs over QUIC
@@ -523,15 +542,22 @@ def frag_dns(countries, has_home, home_endpoint=None, bootstrap_ip='1.1.1.1', ws
 
 def frag_home_endpoint(home, device_wg):
     """
-    🏠 Home WireGuard endpoint. Detours via 🔀 Proxy so the WG handshake +
-    data plane ride inside whichever proxy protocol the user has selected
-    (keeps WG UDP out of the clear on hostile networks AND honours the
-    user's explicit selector choice — if the user pins 🔀 Proxy to
-    🔐 Reality, home WG rides over Reality too). Prior to 2026-04-23 the
-    detour was hardcoded to ⚡ Fastest, which meant pinning 🔀 Proxy had
-    no effect on home-country traffic. Since 🔀 Proxy's own default is
-    ⚡ Fastest, the out-of-the-box behaviour is identical; only manual
-    pins now propagate to home WG.
+    🏠 Home WireGuard endpoint. Detours via the 🚇 Home Carrier selector
+    (see frag_selectors) which defaults to 🔀 Proxy — preserving the
+    "WG wrapped in proxy protocol" behaviour that makes home access work
+    from inside hostile DPI (CN/RU/IR). The user can flip 🚇 Home Carrier
+    to ➡️ Direct in the dashboard to send raw WG straight to the residential
+    endpoint, which is the right choice when:
+      - low latency matters more than DPI cover (VoWiFi voice calls,
+        gaming) AND
+      - the current network can carry raw WG without throttling/blocking
+        (most non-restricted networks, hotel Wi-Fi outside CN, etc.)
+    Flipping back to 🔀 Proxy restores the wrapped behaviour. The detour
+    indirection through a selector means a single dashboard toggle
+    propagates to every home-egress flow (including the auto-applied VoWiFi
+    rules) without re-rendering. Pre-2026-04-27 the detour was hardcoded
+    to 🔀 Proxy with no escape hatch, so any per-flow direct-WG case (e.g.
+    VoWiFi) required either a second WG identity or rebuilding the config.
 
     All WG knobs are user-configurable via the manifest (see `home:` and
     `home_wg:` blocks). Only fields present in the manifest are emitted —
@@ -546,7 +572,11 @@ def frag_home_endpoint(home, device_wg):
     ep = {
         'type': 'wireguard',
         'tag': '🏠 Home',
-        'detour': '🔀 Proxy',
+        # Detour through the 🚇 Home Carrier selector instead of pinning
+        # 🔀 Proxy directly. Default of that selector is 🔀 Proxy (zero
+        # behavioural change) but the user can flip to ➡️ Direct on the
+        # fly for low-latency raw-WG. See frag_home_endpoint docstring.
+        'detour': '🚇 Home Carrier',
         # MTU 1280 (was 1380). The 🏠 Home WG endpoint rides inside whichever
         # proxy protocol 🔀 Proxy resolves to — ⚡ Fastest by default,
         # Reality/hy2/ShadowTLS/WS-CDN if the user has pinned — so WG
@@ -805,6 +835,18 @@ def frag_selectors(user, device, defaults):
             'outbounds': ['🌍 Default', '🏠 Home', '➡️ Direct'],
             'default': '🏠 Home',
         })
+        # 🚇 Home Carrier — the WG endpoint's detour points here, so flipping
+        # this selector switches between proxy-wrapped (default, DPI-safe in
+        # CN/RU/IR) and raw direct WG (lower latency, fine on non-restricted
+        # networks, required for VoWiFi voice quality). Order: 🔀 Proxy first
+        # so it's the visual default in the dashboard. ➡️ Direct as the only
+        # alternative; we don't expose individual proxy protocols here because
+        # the user already has 🔀 Proxy itself for that finer-grained pin.
+        selectors.append({
+            'tag': '🚇 Home Carrier', 'type': 'selector',
+            'outbounds': ['🔀 Proxy', '➡️ Direct'],
+            'default': '🔀 Proxy',
+        })
 
     # 🔒 Trusted — sensitive accounts. Default = 🔀 Proxy so banking /
     # Apple / 1Password are always tunnelled regardless of where the user
@@ -985,12 +1027,35 @@ def frag_route(user, device, defaults):
         rules.append({'domain_suffix': TRUSTED_DOMAINS, 'outbound': '🔒 Trusted'})
 
     # Home-egress routing (before country rules, so home ccTLDs don't get
-    # swept into country Restricted). Two sources:
+    # swept into country Restricted). Three sources, emitted in
+    # specificity order (narrowest first):
+    #   - home_country auto-extras (data/home_countries/<iso>.yaml) — today
+    #     the only consumer is the `vowifi` block (ePDG domain + per-MNO
+    #     CIDRs) for Italy. Emitted first because the IPs are inside the
+    #     parent geoip-it set and a generic geoip-it match would otherwise
+    #     swallow them with no functional difference but worse readability
+    #     in the route trace. Auto-applied — driven solely by user.home.country.
     #   - home_egress_countries: ISO-2 codes → both a geoip rule and a
     #     domain_suffix entry (matching the ccTLD).
     #   - home_egress_tlds: arbitrary TLDs (eu, one, brand TLDs) → only
     #     domain_suffix, no geoip.
     if has_home:
+        # 1. home-country auto-extras (vowifi etc.). HOME_COUNTRY is a
+        #    dict-of-dicts; missing entry / missing section → no-op.
+        home_cc = user['home'].get('country')
+        home_extras = HOME_COUNTRY.get(home_cc, {}) if home_cc else {}
+        vowifi = home_extras.get('vowifi') or {}
+        vowifi_doms = vowifi.get('domain_suffix') or []
+        vowifi_cidrs = vowifi.get('ip_cidr') or []
+        # Emit as two rules (one matcher type each) rather than one mixed
+        # rule so the route trace clearly attributes a hit to either the
+        # DNS-driven path or the IP-direct (carrier-bundle) fallback.
+        if vowifi_doms:
+            rules.append({'domain_suffix': vowifi_doms, 'outbound': '🏠 Home Egress'})
+        if vowifi_cidrs:
+            rules.append({'ip_cidr': vowifi_cidrs, 'outbound': '🏠 Home Egress'})
+
+        # 2. broad geoip + ccTLD home egress.
         home_geoips, home_tlds = [], []
         for cc in user['home'].get('home_egress_countries', []):
             m = home_country(cc)

@@ -72,7 +72,7 @@
     {
       "type": "wireguard",
       "tag": "🏠 Home",
-      "detour": "🔀 Proxy",
+      "detour": "🚇 Home Carrier",
       "mtu": 1280,
       "address": [
         "10.10.0.2/24"
@@ -268,6 +268,15 @@
         "➡️ Direct"
       ],
       "default": "🏠 Home"
+    },
+    {
+      "tag": "🚇 Home Carrier",
+      "type": "selector",
+      "outbounds": [
+        "🔀 Proxy",
+        "➡️ Direct"
+      ],
+      "default": "🔀 Proxy"
     },
     {
       "tag": "🔒 Trusted",
@@ -480,6 +489,21 @@
           "wise.com"
         ],
         "outbound": "🔒 Trusted"
+      },
+      {
+        "domain_suffix": [
+          "3gppnetwork.org"
+        ],
+        "outbound": "🏠 Home Egress"
+      },
+      {
+        "ip_cidr": [
+          "217.200.184.0/24",
+          "91.81.128.0/17",
+          "151.58.176.0/24",
+          "83.158.8.0/24"
+        ],
+        "outbound": "🏠 Home Egress"
       },
       {
         "rule_set": [
