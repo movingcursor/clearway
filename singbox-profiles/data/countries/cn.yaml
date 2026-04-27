@@ -41,9 +41,15 @@ rulesets:
 # Notes explain operator nuance — leave a country's `recommended` to all
 # four if they all work, narrow only when one is reliably broken.
 protocols:
-  recommended: [reality, ws_cdn, shadowtls, hysteria2]
+  recommended: [reality, ws-cf, shadowtls, hy2]
+  # Country default for the 🔀 Proxy selector when a CN-only resident has no
+  # per-user `preferred_protocol` override. Reality is fastest when the
+  # proxy IP isn't actively blocked; users flip the selector to ws-cf or
+  # shadowtls in the dashboard if Reality breaks (manual escape hatch
+  # documented in docs/architecture.md selector-default section).
+  default: reality
   notes: |
     All four work. Reality is fastest when the proxy IP isn't actively
-    blocked; WS-CDN through Cloudflare is the survival path when it is.
-    Hysteria2 over UDP/443 is fast but the GFW periodically throttles
-    sustained QUIC flows.
+    blocked; ws-cf through Cloudflare is the survival path when it is.
+    hy2 over UDP/443 is fast but the GFW periodically throttles sustained
+    QUIC flows.

@@ -63,7 +63,7 @@ full render.
 
 What lives here:
 
-- `defaults.{reality, ws_cdn, shadowtls, hysteria2}` — server endpoints,
+- `defaults.{reality, ws-cf, shadowtls, hy2}` — server endpoints,
   ports, SNIs, the default uTLS fingerprint, optional `proxy_server_ips`
   for multi-host deployments.
 - `users.<name>.countries / protocols / devices` — what each user gets.
@@ -82,15 +82,15 @@ On every render, the renderer fills in any missing credentials and writes
 them back. Mode is clamped to 0600 on every write. The "auto-fill missing"
 loop is what makes onboarding a new user trivial — add `users.alice` to
 `profiles.yaml`, run `./render.py`, and `.secrets.yaml` gets a freshly-generated
-`secret`, `ws_cdn_uuid`, `hysteria2_password`, `shadowtls_password`,
+`secret`, `ws_cf_uuid`, `hy2_password`, `shadowtls_password`,
 `shadowsocks_password`, and per-device `reality.{uuid, short_id}` and
 `clash_secret`.
 
-Per-user fields (`secret`, `ws_cdn_uuid`, `hysteria2_password`,
+Per-user fields (`secret`, `ws_cf_uuid`, `hy2_password`,
 `shadowtls_password`, `shadowsocks_password`, optional `notify_webhook`)
 are auto-generated. Per-device fields (`reality.uuid`, `reality.short_id`,
 `clash_secret`) are auto-generated. **Reality keypair** (`shared.reality_*`)
-and **hy2 obfs password** (`shared.hysteria2_obfs_salamander_password`) are
+and **hy2 obfs password** (`shared.hy2_obfs_salamander_password`) are
 NOT auto-generated — they require a paired server-side change (Reality
 keypair) or shared-symmetric-secret coordination, so rotating them is a
 deliberate operator action. Use `rotate-reality-key.sh` rather than editing
@@ -205,14 +205,126 @@ What this *doesn't* cover:
 - **Reality keypair rotation** — the public key is shared across all users,
   so there's no "old + new" slot on the server. `rotate-reality-key.sh`
   is a flag day; clients without a recent poll will fail Reality until they
-  re-fetch. Other protocols on the same client are unaffected, and
-  `urltest` keeps traffic moving on whichever non-Reality protocol is
-  fastest during the rotation window.
+  re-fetch. Other protocols on the same client are unaffected — the user
+  flips 🔀 Proxy to a different protocol manually if their default was
+  reality (see *Selector default and manual fallback* below).
 - **hy2 cert rotation** — the cert is pinned by every client; same
   flag-day model. `rotate-hy2-cert.sh` posts a notification (via `NOTIFY`
-  if set) so operators are aware of the temporary hy2 outage; urltest
-  carries traffic on Reality / ShadowTLS / WS-CDN until clients poll the
+  if set) so operators are aware of the temporary hy2 outage; users on hy2
+  default flip to ShadowTLS or ws-cf in the dashboard until they poll the
   new pin.
+
+## Selector default and manual fallback
+
+The 🔀 Proxy selector emits `type: selector` (not `urltest`) with a
+country-derived default. There is no automatic on-error switch between
+protocols; the user manually flips in the dashboard if their default
+breaks. This is a deliberate change from the pre-AWG design (which used
+`urltest` to auto-pick the fastest protocol every few minutes).
+
+### Why no automatic fallback
+
+The pre-AWG renderer emitted a `⚡ Fastest` urltest outbound that probed
+every enabled protocol on a 5-10 minute cadence. That probing pattern is
+itself a fingerprint — regular small requests to multiple foreign IPs at
+fixed intervals, observable behaviorally even when individual protocols
+pass DPI. Removing it tightens the threat model materially.
+
+Two on-error fallback approaches were considered as replacements:
+
+1. **Route rules matching outbound errors and re-routing**. sing-box 1.13's
+   route-rule schema doesn't include an "outbound returned an error"
+   matcher; this isn't expressible in vanilla sing-box.
+2. **A thin watcher (sidecar) updating the selector default via the
+   clash_api**. Adds a runtime component that has to be deployed on every
+   client device — not viable for the iOS app, doesn't fit the renderer-
+   only deployment model.
+
+Neither produces a zero-runtime-component solution that sing-box 1.13
+supports natively. We chose pure selector + documented manual fallback:
+the 🔀 Proxy selector lists every enabled protocol; the user taps to
+switch when the default fails. Per-user README spells out the procedure.
+
+### Country defaults
+
+Single-country residents get the protocol most likely to survive in their
+region as the selector default:
+
+| Country | Default | Why |
+|---|---|---|
+| `cn` | `reality` | Fastest when the proxy IP isn't IP-blocked; ws-cf is the survival fallback. |
+| `ru` | `shadowtls` | Most resilient to RKN/TSPU's TCP-freeze attack on suspicious foreign IPs. |
+| `ir` | `shadowtls` | The most consistently surviving sing-box-native path post-2025 IR shutdown. |
+| traveller / multi-country | `hy2` | Speed-first default when no specific region is targeted. |
+
+Each country's `data/countries/<iso>.yaml` carries a `protocols.default`
+field; `proxy_selector_default()` in render.py reads it. Override per-user
+with `users.<name>.preferred_protocol: <tag>` in `profiles.yaml`.
+
+### AWG as a parallel resilience tunnel
+
+AWG never shows up as a sing-box selector option — it's served by a
+separate Amnezia VPN app on the user's device. When all four sing-box-
+native protocols fail (e.g. RKN coordinated TCP-freeze + UDP/443 throttle),
+the user starts the AWG tunnel from the Amnezia app as the second-leg
+fallback. The two-app split is documented in the per-user README and
+[hazards.md](hazards.md#amnezia-vpn-app-on-ios-conflicts-with-active-sing-box-vpn-profile).
+
+## awg-server: separate container, separate failure domain
+
+AmneziaWG runs in `amneziavpn/amneziawg-go` (the official Amnezia upstream
+image) as a sidecar to `singbox-server`. Two services in `compose.yaml`,
+opt-in via `--profile awg-server`. sing-box stays unmodified at upstream
+HEAD — clearway's stack pays no version-lag tax for using AWG. Failure
+isolation is a free bonus: a wedged AWG container doesn't touch the four
+sing-box-native protocols, and a wedged sing-box doesn't touch AWG.
+
+The alternative (replace upstream sing-box with a hoaxisr/amnezia-box
+fork that carries the AWG outbound type) would have made every existing
+protocol pay the fork tax — single-maintainer dependency, version lag
+(1.12.x vs upstream 1.13.x), no upstream docker images, schema validators
+lag the fork. The 95% of clearway functionality that's not AWG inherits
+this tax to enable a feature used by some users on one protocol. The
+sidecar architecture skips that math entirely.
+
+amneziawg-go runs userspace WireGuard and needs `NET_ADMIN` to manage the
+TUN device + iptables NAT rules. This is unavoidable for any WG userspace
+implementation. Compensate with read-only rootfs, image digest pin, narrow
+port exposure (UDP/51820 only via VNIC_SECONDARY_IP), no-new-privileges.
+See [hardening.md](hardening.md).
+
+## AWG subnet allocation
+
+Per-user IPv4 addresses inside `awg.subnet` are allocated deterministically
+by `_allocate_awg_addresses()` in render.py. The mechanics:
+
+1. The first host address (e.g. `10.66.66.1` for the default `/24`) is
+   reserved for the awg-server's own [Interface] block. Never assigned to
+   a user, even via explicit pin.
+
+2. Pinned `awg_address` values from `profiles.yaml` are processed first.
+   Operator-set pins are validated (must parse as a CIDR, must lie inside
+   `awg.subnet`, must not collide with the server address or another
+   pin). Errors here exit before any rendering happens, so a bad pin
+   surfaces with a precise message rather than as a downstream "subnet
+   full" red herring.
+
+3. Hash-allocated for the rest. `int(sha256(uname).hexdigest(), 16) % N`
+   picks a starting offset; linear-probe forward (modulo `N`, sorted by
+   uname for determinism) until a free slot. Fail loud if the subnet is
+   full.
+
+Hash-from-username start means **adding a user mid-life doesn't reshuffle
+existing peers** — each is found at the same hash position on every run,
+which keeps `.conf` distributions stable across renders. Linear probe
+handles incidental collisions without resetting the whole allocation.
+
+`awg.subnet` defaults to `10.66.66.0/24` (254 host addrs, comfortable
+upper bound for the household scale clearway targets). The default value
+is chosen unconventional-enough to rarely collide with home networks;
+deployments where it *does* collide change it in `.secrets.yaml` and
+re-render. Subnet change is a flag-day for AWG users (every `.conf`
+becomes invalid; redistribute) — see [hazards.md #17](hazards.md#17-awg-subnet-collision-with-home_wg-ranges).
 
 ## SS-2022 multi-user EIH
 
