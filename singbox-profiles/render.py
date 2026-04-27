@@ -927,17 +927,12 @@ def frag_selectors(user, device, defaults):
         'default': '🔀 Proxy',
     })
 
-    # 🏠 Home Egress — only if user has home block.
-    # Fallback chain points at 🌍 Default (not 🔀 Proxy directly) so that
-    # flipping Default to Direct/Home propagates to home-country traffic
-    # too — keeps the user's "where does my traffic exit" choice in one
-    # place instead of needing to flip Proxy and Home Egress in lockstep.
+    # 🚇 Home Carrier emitted before 🏠 Home Egress: Carrier is the more-
+    # frequently-flipped of the two (proxy-wrapped ↔ raw-WG toggle for the
+    # current network), and dashboards render selectors in array order.
+    # Putting Carrier first keeps the toggle near the top, with Egress
+    # (the per-flow exit-side knob) below as the lower-frequency control.
     if has_home:
-        selectors.append({
-            'tag': '🏠 Home Egress', 'type': 'selector',
-            'outbounds': ['🌍 Default', '🏠 Home', '➡️ Direct'],
-            'default': '🏠 Home',
-        })
         # 🚇 Home Carrier — the WG endpoint's detour points here, so flipping
         # this selector switches between proxy-wrapped (default, DPI-safe in
         # CN/RU/IR) and raw direct WG (lower latency, fine on non-restricted
@@ -949,6 +944,16 @@ def frag_selectors(user, device, defaults):
             'tag': '🚇 Home Carrier', 'type': 'selector',
             'outbounds': ['🔀 Proxy', '➡️ Direct'],
             'default': '🔀 Proxy',
+        })
+        # 🏠 Home Egress — fallback chain points at 🌍 Default (not 🔀 Proxy
+        # directly) so flipping Default to Direct/Home propagates to home-
+        # country traffic too — keeps the user's "where does my traffic exit"
+        # choice in one place instead of needing to flip Proxy and Home
+        # Egress in lockstep.
+        selectors.append({
+            'tag': '🏠 Home Egress', 'type': 'selector',
+            'outbounds': ['🌍 Default', '🏠 Home', '➡️ Direct'],
+            'default': '🏠 Home',
         })
 
     # 🔒 Trusted — sensitive accounts. Default = 🔀 Proxy so banking /

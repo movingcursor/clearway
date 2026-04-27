@@ -244,6 +244,15 @@
       "default": "🔀 Proxy"
     },
     {
+      "tag": "🚇 Home Carrier",
+      "type": "selector",
+      "outbounds": [
+        "🔀 Proxy",
+        "➡️ Direct"
+      ],
+      "default": "🔀 Proxy"
+    },
+    {
       "tag": "🏠 Home Egress",
       "type": "selector",
       "outbounds": [
@@ -252,15 +261,6 @@
         "➡️ Direct"
       ],
       "default": "🏠 Home"
-    },
-    {
-      "tag": "🚇 Home Carrier",
-      "type": "selector",
-      "outbounds": [
-        "🔀 Proxy",
-        "➡️ Direct"
-      ],
-      "default": "🔀 Proxy"
     },
     {
       "tag": "🔒 Trusted",
