@@ -237,6 +237,8 @@ AWG_SERVER_DIR = Path(os.environ.get('CLEARWAY_AWG_SERVER_DIR',
                                      str(ROOT.parent / 'awg-server'))).resolve()
 AWG_SERVER_CONFIG = AWG_SERVER_DIR / 'config' / 'awg0.conf'
 AWG_CLIENT_TEMPLATE = ROOT / 'templates' / 'awg-client.conf.template'
+AWG_SERVER_TEMPLATE = ROOT / 'templates' / 'awg-server.conf.template'
+AWG_SERVER_RESTART = AWG_SERVER_DIR / 'safe-restart.sh'
 
 # AWG obfuscation params (Jc/Jmin/Jmax/S1/S2/H1-H4) and keypair / subnet /
 # port / endpoint live in .secrets.yaml under the top-level `awg:` block.
@@ -1540,19 +1542,17 @@ def compute_client_plan(manifest):
             if stale_awg.exists() and 'awg.conf' not in expected:
                 plan.append((stale_awg, None, 'delete', uname))
 
-    # awg-server stub config emission. Stage 1 writes a placeholder; stage 2
-    # replaces this with the rendered server [Interface] + [Peer] blocks. The
-    # stub still lives under awg-server/config/ so the path is shaped like the
-    # final layout from day one — bind mounts and gitignores can be authored
-    # against the real path early without churn.
+    # awg-server config emission. Real [Interface] + per-user [Peer] blocks
+    # rendered from .secrets.yaml + the AWG users' derived public keys. Bind-
+    # mounted into the awg-server container at /etc/amneziawg/awg0.conf.
     if awg_state:
-        stub_text = _render_awg_server_stub(awg_state['block'])
-        stub_path = AWG_SERVER_CONFIG
-        if stub_path.exists():
-            action = 'unchanged' if stub_path.read_text() == stub_text else 'modify'
+        srv_text = _render_awg_server_config(manifest, awg_state)
+        srv_path = AWG_SERVER_CONFIG
+        if srv_path.exists():
+            action = 'unchanged' if srv_path.read_text() == srv_text else 'modify'
         else:
             action = 'create'
-        plan.append((stub_path, stub_text, action, '<awg-server>'))
+        plan.append((srv_path, srv_text, action, '<awg-server>'))
 
     return plan
 
@@ -2054,22 +2054,99 @@ def _render_awg_client_conf(uname, user, sfile, awg_block, address):
     return tpl
 
 
-def _render_awg_server_stub(awg_block):
+def _x25519_public_from_private(b64_private):
     """
-    Stage 1 emits a stub awg-server config — a single comment line — at
-    AWG_SERVER_CONFIG so the path exists and any `--profile awg-server`
-    docker-compose run wouldn't bind-mount a missing file. The real
-    [Interface] + per-user [Peer] blocks land in stage 2 via
-    `awg-server.conf.template`. Until then this stub is intentionally
-    non-functional: the awg-server compose service is opt-in via
-    `--profile` (added in stage 2) so leaving the stub in tree is safe.
+    Derive an X25519 / WireGuard public key from a base64-encoded 32-byte
+    private key. Used for both the server keypair (cross-checking that
+    awg.server_public_key in .secrets.yaml matches awg.server_private_key)
+    and for each user's public key (which goes into the server config's
+    [Peer] block — render.py never asks the operator to compute it).
+
+    Returns the standard wg-format base64 public key. Raises ValueError on
+    a malformed or wrong-length private key — caught upstream and turned
+    into a precise SystemExit so the operator sees which user's key broke.
     """
-    return (
-        '# Placeholder — replaced by render.py in stage 2 of the AWG rollout.\n'
-        '# At that point this file becomes a wg-quick + AmneziaWG config with\n'
-        '# the awg-server [Interface] block and one [Peer] per AWG-enabled user.\n'
-        f'# Subnet: {awg_block["subnet"]}, port: {awg_block["port"]}.\n'
+    import base64
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+    raw = base64.b64decode(b64_private, validate=True)
+    if len(raw) != 32:
+        raise ValueError(f'expected 32-byte X25519 private key, got {len(raw)} bytes')
+    pub = X25519PrivateKey.from_private_bytes(raw).public_key()
+    return base64.b64encode(
+        pub.public_bytes(Encoding.Raw, PublicFormat.Raw)
+    ).decode('ascii')
+
+
+def _render_awg_server_config(manifest, awg_state):
+    """
+    Render the awg-server config from the wg-quick template + per-user
+    [Peer] blocks. Replaces the stage-1 stub. AWG_SERVER_TEMPLATE provides
+    the [Interface] block; this function appends one [Peer] per AWG user
+    with their derived public key + allocated /32 address.
+
+    Each user's public key is computed from `awg_private_key` at render
+    time — no second source of truth, no risk of drift between client
+    .conf and server [Peer] block.
+    """
+    if not AWG_SERVER_TEMPLATE.exists():
+        sys.exit(f'AWG server template missing: {AWG_SERVER_TEMPLATE}')
+    awg_block = awg_state['block']
+    addresses = awg_state['addresses']
+    server_address = awg_state['server_address']
+
+    # Build [Peer] blocks for every AWG user. Sorted-by-username order
+    # keeps the rendered file stable when peers come and go (golden-test
+    # friendliness + clean diffs).
+    peer_lines = []
+    for uname, user in sorted(_awg_users(manifest)):
+        try:
+            pub = _x25519_public_from_private(user['awg_private_key'])
+        except Exception as e:
+            sys.exit(
+                f'failed to derive AWG public key for user {uname!r}: {e}. '
+                f'Check that .secrets.yaml.users.{uname}.awg_private_key is '
+                f'a valid base64 32-byte X25519 private key (output of `wg genkey`).'
+            )
+        # PersistentKeepalive=0 server-side mitigates the WG keepalive-storm
+        # bug (sing-box #3981 / wireguard-go shared upstream): an active
+        # server-side keepalive on every peer causes battery drain on idle
+        # mobile clients. Clients drive keepalive themselves (25s in the
+        # client template) for NAT traversal — this only disables the
+        # *server-initiated* keepalive. See docs/hazards.md.
+        peer_lines.append(
+            f'[Peer]\n'
+            f'# {uname}\n'
+            f'PublicKey = {pub}\n'
+            f'AllowedIPs = {addresses[uname]}/32\n'
+            f'PersistentKeepalive = 0\n'
+        )
+    peers_block = '\n'.join(peer_lines) if peer_lines else (
+        '# (no AWG users in profiles.yaml — empty peer set; awg-server will\n'
+        '#  start but accept no client handshakes until users are added.)\n'
     )
+
+    tpl = AWG_SERVER_TEMPLATE.read_text()
+    subs = {
+        '__SERVER_ADDRESS__':         f'{server_address}/24',
+        '__AWG_PORT__':               str(awg_block['port']),
+        '__AWG_SERVER_PRIVATE_KEY__': awg_block['server_private_key'],
+        '__AWG_JC__':                 str(awg_block['Jc']),
+        '__AWG_JMIN__':               str(awg_block['Jmin']),
+        '__AWG_JMAX__':               str(awg_block['Jmax']),
+        '__AWG_S1__':                 str(awg_block['S1']),
+        '__AWG_S2__':                 str(awg_block['S2']),
+        '__AWG_H1__':                 str(awg_block['H1']),
+        '__AWG_H2__':                 str(awg_block['H2']),
+        '__AWG_H3__':                 str(awg_block['H3']),
+        '__AWG_H4__':                 str(awg_block['H4']),
+        '__PEERS__':                  peers_block,
+    }
+    for k, v in subs.items():
+        if k not in tpl:
+            sys.exit(f'awg-server template placeholder {k} missing from {AWG_SERVER_TEMPLATE}')
+        tpl = tpl.replace(k, v)
+    return tpl
 
 
 def load_manifest(auto_yes=False):

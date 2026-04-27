@@ -8,28 +8,23 @@
 # which updates this server config and every per-user awg.conf
 # atomically and re-distributes them to clients on their next poll.
 [Interface]
-Address = 10.66.66.1/24
-ListenPort = 51820
-PrivateKey = AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
+Address = __SERVER_ADDRESS__
+ListenPort = __AWG_PORT__
+PrivateKey = __AWG_SERVER_PRIVATE_KEY__
 MTU = 1420
-Jc = 8
-Jmin = 40
-Jmax = 80
-S1 = 75
-S2 = 110
-H1 = 1234567890
-H2 = 2345678901
-H3 = 3456789012
-H4 = 987654321
+Jc = __AWG_JC__
+Jmin = __AWG_JMIN__
+Jmax = __AWG_JMAX__
+S1 = __AWG_S1__
+S2 = __AWG_S2__
+H1 = __AWG_H1__
+H2 = __AWG_H2__
+H3 = __AWG_H3__
+H4 = __AWG_H4__
 # `eth+` matches any ethernet interface inside the container's netns —
 # robust against Docker network-name churn. MASQUERADE on egress so AWG
 # clients reach the wider internet via this container's outbound IP.
 PostUp = iptables -t nat -A POSTROUTING -o eth+ -j MASQUERADE
 PostDown = iptables -t nat -D POSTROUTING -o eth+ -j MASQUERADE
 
-[Peer]
-# test_dave
-PublicKey = zo060cy2M+x7cMF4FKXHbs0CloUFDTRHRboFhw5YfVk=
-AllowedIPs = 10.66.66.69/32
-PersistentKeepalive = 0
-
+__PEERS__
