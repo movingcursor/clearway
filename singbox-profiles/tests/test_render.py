@@ -111,7 +111,7 @@ def _render_all(render):
                 awg_state['addresses'][uname],
             )
             out[f'{uname}-awg.conf'] = text
-        out['awg-server.conf'] = render._render_awg_server_stub(awg_state['block'])
+        out['awg-server.conf'] = render._render_awg_server_config(manifest, awg_state)
 
     return out
 
@@ -171,6 +171,35 @@ def _compare(rendered, update):
     return passes, fails
 
 
+def _test_x25519_derivation(render):
+    """
+    Unit test: render._x25519_public_from_private must produce the canonical
+    WG public key for a known private key. Uses the WireGuard upstream test
+    vector (RFC-7748 / wg's `tools/embedded-test/test-key`) so a regression
+    in the cryptography lib or a parameter mishap in render.py shows up
+    immediately rather than at handshake-fail time on a real client.
+
+    Vector source: cryptography library's own test suite + RFC-7748 test
+    vectors. Private key 0x77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a
+    (base64 d3B20Kcxi...) -> public 0x8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a.
+    """
+    import base64
+    priv_b = bytes.fromhex(
+        '77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a'
+    )
+    expected_pub_b = bytes.fromhex(
+        '8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a'
+    )
+    priv_b64 = base64.b64encode(priv_b).decode()
+    got_pub = render._x25519_public_from_private(priv_b64)
+    expected_pub = base64.b64encode(expected_pub_b).decode()
+    if got_pub == expected_pub:
+        print('  ✓ x25519-derivation: matches RFC-7748 test vector')
+        return 1, 0
+    print(f'  ✗ x25519-derivation: expected {expected_pub!r}, got {got_pub!r}')
+    return 0, 1
+
+
 def _test_awg_negative(render):
     """
     Negative test: a user with 'awg' in protocols but no `awg_private_key`
@@ -221,19 +250,22 @@ def main():
 
     passes, fails = _compare(rendered, update=update)
 
-    # Negative tests run even in --update mode (they're not goldens, they
-    # exercise the renderer's hard-check paths). Skipping under --update
+    # Unit + negative tests run even in --update mode (they're not goldens,
+    # they exercise renderer-internal checks). Skipping under --update
     # would silently lose the regression coverage.
+    x_pass, x_fail = _test_x25519_derivation(render)
     neg_pass, neg_fail = _test_awg_negative(render)
-    passes += neg_pass
-    fails += neg_fail
+    extra_pass = x_pass + neg_pass
+    extra_fail = x_fail + neg_fail
+    passes += extra_pass
+    fails += extra_fail
 
     total = passes + fails
     print()
     if update:
-        print(f'regenerated {passes - neg_pass} golden(s); '
-              f'{neg_pass}/{neg_pass + neg_fail} negative test(s) passed')
-        sys.exit(0 if neg_fail == 0 else 1)
+        print(f'regenerated {passes - extra_pass} golden(s); '
+              f'{extra_pass}/{extra_pass + extra_fail} unit+negative test(s) passed')
+        sys.exit(0 if extra_fail == 0 else 1)
     print(f'{passes}/{total} passed, {fails} failed')
     sys.exit(0 if fails == 0 else 1)
 
