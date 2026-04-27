@@ -90,27 +90,25 @@ def _render_all(render):
             cfg = render.compose(user, dev, manifest['defaults'])
             out[f'{uname}-{dev["name"]}.json'] = render.emit_json(cfg)
 
-    # AWG outputs (stage 1+): per-user awg.conf + awg-server stub. Only
-    # emitted when at least one user has 'awg' in protocols, so non-AWG
-    # fixture runs produce nothing here and existing goldens stay clean.
+    # AWG outputs: per-device awg-<dev>.conf + awg-server config. AWG
+    # identities are per-device (post-2026-04-27); each device has its own
+    # keypair, /32 address, and [Peer] block. Only emitted when at least
+    # one user has 'awg' in protocols, so non-AWG fixture runs produce
+    # nothing here and existing goldens stay clean.
     awg_state = manifest.get('_awg')
     if awg_state:
-        sfile_users_for_awg = {
-            uname: {'awg_private_key': u['awg_private_key']}
-            for uname, u in manifest['users'].items()
-            if u.get('awg_private_key')
-        }
         for uname, user in manifest['users'].items():
             if 'awg' not in user.get('protocols', []):
                 continue
-            text = render._render_awg_client_conf(
-                uname,
-                user,
-                {'users': sfile_users_for_awg},
-                awg_state['block'],
-                awg_state['addresses'][uname],
-            )
-            out[f'{uname}-awg.conf'] = text
+            for dev in user['devices']:
+                text = render._render_awg_client_conf(
+                    uname,
+                    dev['name'],
+                    dev,
+                    awg_state['block'],
+                    awg_state['addresses'][uname][dev['name']],
+                )
+                out[f'{uname}-{dev["name"]}-awg.conf'] = text
         out['awg-server.conf'] = render._render_awg_server_config(manifest, awg_state)
 
     return out
@@ -202,11 +200,12 @@ def _test_x25519_derivation(render):
 
 def _test_awg_negative(render):
     """
-    Negative test: a user with 'awg' in protocols but no `awg_private_key`
-    in .secrets.yaml must cause _validate_awg_block to exit with a message
-    that names the field. Uses the validation function directly with a
-    synthetic minimal manifest + sfile, so it doesn't need its own fixture
-    tree on disk and doesn't pollute the goldens.
+    Negative test: an AWG-enabled device with no `awg_private_key` under
+    .secrets.yaml.users.<n>.devices.<dev> must cause _validate_awg_block
+    to exit with a message that names both the field and the offending
+    user/device. Uses the validation function directly with a synthetic
+    minimal manifest + sfile, so it doesn't need its own fixture tree on
+    disk and doesn't pollute the goldens.
 
     Returns (passed, failed) — printed as a single line by main().
     """
@@ -217,20 +216,30 @@ def _test_awg_negative(render):
         'Jc': 8, 'Jmin': 40, 'Jmax': 80, 'S1': 75, 'S2': 110,
         'H1': 1, 'H2': 2, 'H3': 3, 'H4': 4,
     }
-    sfile = {'users': {'someone': {}}}  # no awg_private_key
-    manifest = {'users': {'someone': {'protocols': ['awg']}}}
+    # Device exists in profiles.yaml but its slot in .secrets.yaml is empty —
+    # _autogen_missing would normally fill this in; the validator is the last
+    # line of defence if autogen was bypassed (e.g. an operator hand-edit).
+    sfile = {'users': {'someone': {'devices': {'phone': {}}}}}
+    manifest = {
+        'users': {
+            'someone': {
+                'protocols': ['awg'],
+                'devices': [{'type': 'mobile', 'name': 'phone'}],
+            }
+        }
+    }
     try:
         render._validate_awg_block(awg_block, sfile, manifest)
     except SystemExit as e:
         msg = str(e)
-        if 'awg_private_key' in msg and "'someone'" in msg:
-            print('  ✓ awg-negative: missing awg_private_key fails loud')
+        if 'awg_private_key' in msg and 'someone/phone' in msg:
+            print('  ✓ awg-negative: missing per-device awg_private_key fails loud')
             return 1, 0
         print(f'  ✗ awg-negative: SystemExit message did not mention '
-              f'awg_private_key + the offending user: {msg!r}')
+              f'awg_private_key + the offending uname/dev: {msg!r}')
         return 0, 1
     print('  ✗ awg-negative: validation did NOT exit when awg_private_key '
-          'was missing — this is a regression of the stage-1 hard check')
+          'was missing — regression of the per-device hard check')
     return 0, 1
 
 
