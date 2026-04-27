@@ -18,9 +18,12 @@ jobs:
         with:
           python-version: '3.11'
 
-      # render.py's only runtime deps. Test fixtures + harness use stdlib.
+      # render.py's runtime deps. `cryptography` is needed for X25519 public-
+      # key derivation on the AWG path (per-user awg_private_key → public key
+      # in the awg-server [Peer] block). Test fixtures + harness otherwise
+      # use stdlib only.
       - name: Install dependencies
-        run: pip install jsonschema pyyaml
+        run: pip install jsonschema pyyaml cryptography
 
       - name: Render syntax check
         run: python3 -c "import ast; ast.parse(open('singbox-profiles/render.py').read())"
