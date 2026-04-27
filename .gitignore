@@ -18,6 +18,12 @@ singbox-server/hy2.crt.bak-*
 singbox-server/hy2.key.bak-*
 singbox-server/.env
 
+# awg-server config — rendered from .secrets.yaml's awg block. Carries the
+# server private key inline (wg-quick format), so it must never enter the
+# public repo. Path is created on first AWG-enabled render.
+awg-server/config/*.conf
+awg-server/config/*.conf.prev
+
 # Backups created by the rotation scripts.
 singbox-profiles/.secrets.yaml.bak-*
 
