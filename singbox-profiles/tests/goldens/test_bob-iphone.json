@@ -84,7 +84,7 @@
     },
     {
       "type": "vless",
-      "tag": "🔐 Reality",
+      "tag": "reality",
       "server": "198.51.100.10",
       "server_port": 443,
       "uuid": "00000000-0000-4000-8000-000000000201",
@@ -105,7 +105,7 @@
     },
     {
       "type": "vless",
-      "tag": "☁️ WS-CDN",
+      "tag": "ws-cf",
       "server": "vpnws.example.com",
       "server_port": 443,
       "uuid": "00000000-0000-4000-8000-000000000002",
@@ -130,27 +130,13 @@
       }
     },
     {
-      "tag": "⚡ Fastest",
-      "type": "urltest",
-      "outbounds": [
-        "🔐 Reality",
-        "☁️ WS-CDN"
-      ],
-      "url": "https://www.gstatic.com/generate_204",
-      "interval": "10m",
-      "tolerance": 150,
-      "idle_timeout": "1h",
-      "interrupt_exist_connections": true
-    },
-    {
       "tag": "🔀 Proxy",
       "type": "selector",
       "outbounds": [
-        "⚡ Fastest",
-        "🔐 Reality",
-        "☁️ WS-CDN"
+        "reality",
+        "ws-cf"
       ],
-      "default": "⚡ Fastest"
+      "default": "reality"
     },
     {
       "tag": "🌍 Default",

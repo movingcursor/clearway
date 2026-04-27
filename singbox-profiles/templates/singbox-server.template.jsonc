@@ -78,7 +78,7 @@
       // Hysteria2 — QUIC-based, masquerades as HTTP/3. Fast and CPU-cheap.
       // salamander obfs randomises the QUIC packet header so UDP-flow
       // classifiers (used in RU TSPU and IR DPI) can't match a hy2 signature.
-      // Self-signed cert with matching CN+SAN (set defaults.hysteria2.sni
+      // Self-signed cert with matching CN+SAN (set defaults.hy2.sni
       // in profiles.yaml to control both). Clients pin the PEM (not
       // insecure:true) — safe given shared-secret auth. The SAN is load-
       // bearing: Go's crypto/tls (used by sing-box incl. iOS SFI) dropped
@@ -88,7 +88,7 @@
       // with rotate-hy2-cert.sh — hand-rolled openssl commands are a
       // known footgun here. See docs/hazards.md.
       "type": "hysteria2",
-      "tag": "hysteria2-in",
+      "tag": "hy2-in",
       // Bind to the secondary VNIC IP (substituted from VNIC_SECONDARY_IP
       // at render time). Why bind explicitly: on hosts with multiple VNICs
       // / multiple public IPs, a 0.0.0.0 listener accepts on any IP but the
@@ -110,16 +110,16 @@
       // link hint, not enforcement (see docs/hazards.md).
       "up_mbps": 500,
       "down_mbps": 500,
-      // Users populated by render.py from profiles.yaml (user.hysteria2_password).
-      "users": __USERS_HYSTERIA2__,
+      // Users populated by render.py from profiles.yaml (user.hy2_password).
+      "users": __USERS_HY2__,
       "obfs": {
         "type": "salamander",
-        "password": "__HYSTERIA2_OBFS_PASSWORD__"
+        "password": "__HY2_OBFS_PASSWORD__"
       },
-      "masquerade": "https://__HYSTERIA2_SNI__",
+      "masquerade": "https://__HY2_SNI__",
       "tls": {
         "enabled": true,
-        "server_name": "__HYSTERIA2_SNI__",
+        "server_name": "__HY2_SNI__",
         "alpn": ["h3"],
         "certificate_path": "/etc/sing-box/hy2.crt",
         "key_path": "/etc/sing-box/hy2.key"
@@ -187,7 +187,7 @@
       // reachable (most RU TSPU, some CN scenarios). Traffic flow:
       //   client → Cloudflare (TLS terminate, orange-cloud)
       //          → reverse proxy (Traefik / Caddy / nginx with a real cert
-      //                           for defaults.ws_cdn.host, Host-match route)
+      //                           for defaults['ws-cf'].host, Host-match route)
       //          → this inbound on 172.17.0.1:10001.
       //
       // Listener bound to 172.17.0.1 (docker0 bridge host-side IP) so the
@@ -197,17 +197,17 @@
       // reverse proxy terminates HTTPS in front, the VLESS+WS payload is
       // plaintext over the bridge hop.
       "type": "vless",
-      "tag": "vless-ws-in",
+      "tag": "ws-cf-in",
       "listen": "172.17.0.1",
       "listen_port": 10001,
-      // Users populated by render.py from profiles.yaml (user.ws_cdn_uuid).
+      // Users populated by render.py from profiles.yaml (user.ws_cf_uuid).
       // One user per person — shared across that person's devices, since
       // Cloudflare hides source-IP variance anyway.
-      "users": __USERS_VLESS_WS__,
+      "users": __USERS_WS_CF__,
       // Accept smux-multiplexed VLESS streams. Older clients without
       // multiplex still work — the field is an accept-all gate on the
       // server side, not a mandate. NOTE: the renderer currently disables
-      // smux on the *client* WS-CDN outbound by default (see frag_outbound_ws_cdn
+      // smux on the *client* ws-cf outbound by default (see frag_outbound_ws_cf
       // in render.py and docs/hazards.md) because Cloudflare's WebSocket
       // proxy interacts poorly with smux's binary framing. Leaving the
       // server side enabled is harmless — it's purely permissive.
