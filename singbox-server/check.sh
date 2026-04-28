@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# check-upstream.sh — compare the running singbox-server's sing-box
+# check.sh — compare the running singbox-server's sing-box
 # version against SagerNet/sing-box's latest GitHub release and report
-# when a newer one exists. Mirrors awg-server/check-upstream.sh's shape.
+# when a newer one exists. Mirrors awg-server/check.sh's shape.
 #
 # What it checks:
 #   - The container's `sing-box version` output (semver, e.g. 1.13.10).

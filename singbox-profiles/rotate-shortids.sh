@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# rotate-short-ids.sh — monthly Reality short_id rotation for every device.
+# rotate-shortids.sh — monthly Reality short_id rotation for every device.
 #
 # Why: the Reality short_id is a secondary auth factor alongside the per-
 # device UUID. Rotating it periodically cuts the blast radius of any covert
@@ -29,7 +29,7 @@
 #
 # Not covered: Reality keypair rotation (that invalidates ALL clients
 # atomically — no grace window possible since public_key is shared across
-# users). See rotate-reality-key.sh for that.
+# users). See rotate-realitykey.sh for that.
 
 set -uo pipefail
 
@@ -48,7 +48,7 @@ notify() {
 }
 
 if [[ ! -f "${SECRETS}" ]]; then
-  notify "❌ rotate-short-ids: ${SECRETS} missing — rotation skipped"
+  notify "❌ rotate-shortids: ${SECRETS} missing — rotation skipped"
   exit 1
 fi
 
@@ -56,7 +56,7 @@ fi
 # fails or the restart goes sideways, manual rollback is
 # `cp .bak-shortid-TS .secrets.yaml` + `./render.py -y`.
 # The `-shortid-` infix distinguishes short_id backups from reality-key
-# backups (rotate-reality-key.sh uses `.bak-reality-<ts>`), so each
+# backups (rotate-realitykey.sh uses `.bak-reality-<ts>`), so each
 # script's retention trim only touches its own family.
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BACKUP="${SECRETS}.bak-shortid-${STAMP}"
@@ -68,7 +68,7 @@ BACKUP="${SECRETS}.bak-shortid-${STAMP}"
 # March, something changed in April") without accumulating unbounded files.
 RETAIN=3
 cp -p "${SECRETS}" "${BACKUP}" || {
-  notify "❌ rotate-short-ids: cp ${SECRETS} ${BACKUP} failed"
+  notify "❌ rotate-shortids: cp ${SECRETS} ${BACKUP} failed"
   exit 1
 }
 
@@ -106,7 +106,7 @@ if (( rc != 0 )); then
   # Python bailed — restore from backup so we never leave .secrets.yaml
   # in a half-written state.
   cp -p "${BACKUP}" "${SECRETS}"
-  notify "❌ rotate-short-ids: short_id regen failed (rc=${rc}); restored from ${BACKUP}"
+  notify "❌ rotate-shortids: short_id regen failed (rc=${rc}); restored from ${BACKUP}"
   exit 1
 fi
 
@@ -115,7 +115,7 @@ fi
 # (server sync + safe-restart, plus updated srv/p/ content).
 if ! ./render.py -y 2>&1; then
   cp -p "${BACKUP}" "${SECRETS}"
-  notify "❌ rotate-short-ids: render.py failed; restored from ${BACKUP}"
+  notify "❌ rotate-shortids: render.py failed; restored from ${BACKUP}"
   exit 1
 fi
 

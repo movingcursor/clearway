@@ -211,7 +211,7 @@ Two periodic tasks for routine hygiene:
 ```cron
 # Monthly Reality short_id rotation. Zero-downtime via the 2h grace
 # window (see docs/architecture.md). 03:30 UTC on the 1st.
-30 3 1 * *  cd /opt/clearway/singbox-profiles && ./rotate-short-ids.sh
+30 3 1 * *  cd /opt/clearway/singbox-profiles && ./rotate-shortids.sh
 
 # Yearly hy2 cert rotation. Flag-day for hy2 specifically; clients
 # pick up the new pin on next poll. Schedule for a low-traffic window.
@@ -220,7 +220,7 @@ Two periodic tasks for routine hygiene:
 
 For Reality keypair rotation (a bigger flag day — see
 [architecture.md § rotation](architecture.md#rotation-and-the-2-hour-grace-window)):
-run `singbox-profiles/rotate-reality-key.sh` manually when you need to,
+run `singbox-profiles/rotate-realitykey.sh` manually when you need to,
 during a window where a brief Reality outage is acceptable.
 
 For monthly image bumps:

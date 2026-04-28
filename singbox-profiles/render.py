@@ -2407,7 +2407,7 @@ def load_manifest(auto_yes=False):
     if 'reality_public_key' in shared:
         manifest['defaults']['reality']['public_key'] = shared['reality_public_key']
     # reality_private_key was previously hardcoded in the server template;
-    # moved to .secrets.yaml so rotate-reality-key.sh can update both halves
+    # moved to .secrets.yaml so rotate-realitykey.sh can update both halves
     # of the keypair atomically. Only used by render_server_text (clients
     # only need the public half).
     if 'reality_private_key' in shared:
@@ -2857,7 +2857,7 @@ def render_server_text(merged_view, defaults):
         # propagates to both client configs and the server on --server-apply.
         '__REALITY_HANDSHAKE_SNI__':    defaults['reality']['handshake_sni'],
         # Reality X25519 private key — paired with defaults.reality.public_key
-        # (shared.reality_public_key in .secrets.yaml). rotate-reality-key.sh
+        # (shared.reality_public_key in .secrets.yaml). rotate-realitykey.sh
         # generates a new pair and writes both halves atomically.
         '__REALITY_PRIVATE_KEY__':      defaults['reality']['private_key'],
         '__SHADOWTLS_SNI__':            defaults['shadowtls']['sni'],

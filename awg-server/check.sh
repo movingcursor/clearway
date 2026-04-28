@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-upstream.sh — compare the running awg-server's amneziawg-go +
+# check.sh — compare the running awg-server's amneziawg-go +
 # amneziawg-tools versions against upstream master HEAD and report when
 # a newer commit exists. Designed for source-built deployments (the ARM-
 # host path that can't pull amneziavpn/amneziawg-go from Docker Hub) —

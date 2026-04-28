@@ -93,7 +93,7 @@ are auto-generated. Per-device fields (`reality.uuid`, `reality.short_id`,
 and **hy2 obfs password** (`shared.hy2_obfs_salamander_password`) are
 NOT auto-generated — they require a paired server-side change (Reality
 keypair) or shared-symmetric-secret coordination, so rotating them is a
-deliberate operator action. Use `rotate-reality-key.sh` rather than editing
+deliberate operator action. Use `rotate-realitykey.sh` rather than editing
 by hand.
 
 ### `home_wg/<user>-<device>.conf` — externally-generated WireGuard identities
@@ -193,7 +193,7 @@ and is recognized as a rename (no rotation, no grace). Changing the UUID
 *is* a rotation (grace applies). The `_item_key()` function in `render.py`
 encodes this.
 
-This means routine cred rotation (`rotate-short-ids.sh`) is a flag-day-free
+This means routine cred rotation (`rotate-shortids.sh`) is a flag-day-free
 operation — any client that polls within 2h of rotation picks up the new
 short_id while the old one is still valid; any client that polls *after*
 the rotation gets the new short_id from the start. The poll interval has
@@ -203,7 +203,7 @@ to be < 2h for this to work; the default Windows hourly task and mobile
 What this *doesn't* cover:
 
 - **Reality keypair rotation** — the public key is shared across all users,
-  so there's no "old + new" slot on the server. `rotate-reality-key.sh`
+  so there's no "old + new" slot on the server. `rotate-realitykey.sh`
   is a flag day; clients without a recent poll will fail Reality until they
   re-fetch. Other protocols on the same client are unaffected — the user
   flips 🔀 Proxy to a different protocol manually if their default was

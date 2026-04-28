@@ -17,7 +17,7 @@
 #      running container.
 #
 # When to run:
-#   - check-upstream.sh's weekly remote routine opens a GitHub issue
+#   - check.sh's weekly remote routine opens a GitHub issue
 #     when amnezia-vpn/amneziawg-go or /amneziawg-tools master HEAD is
 #     newer than the embedded baseline. Closing the issue means "rebuilt"
 #     or "skipping this week"; closing it without rebuilding means the

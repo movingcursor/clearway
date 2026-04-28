@@ -66,8 +66,8 @@ clearway/
 │   │                         server}.conf.template + Windows installer
 │   ├── tests/                stdlib-only golden-file tests + X25519 unit test
 │   ├── generate-installer.sh per-user Windows install-singbox.ps1 builder
-│   ├── rotate-short-ids.sh   monthly Reality short_id rotation
-│   └── rotate-reality-key.sh quarterly Reality keypair rotation
+│   ├── rotate-shortids.sh   monthly Reality short_id rotation
+│   └── rotate-realitykey.sh quarterly Reality keypair rotation
 ├── singbox-server/           server half — sing-box-native protocols
 │   ├── compose.yaml          hardened (cap-drop ALL, read-only rootfs,
 │   │                         no-new-privileges, mem/cpu limits, digest pin)

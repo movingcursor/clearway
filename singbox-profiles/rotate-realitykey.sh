@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# rotate-reality-key.sh — rotate the Reality X25519 server keypair.
+# rotate-realitykey.sh — rotate the Reality X25519 server keypair.
 #
 # Why: Reality's server private key is the long-lived secret that binds the
-# handshake. Short_id rotation (rotate-short-ids.sh) limits blast radius for
+# handshake. Short_id rotation (rotate-shortids.sh) limits blast radius for
 # leaked device credentials but not the server identity itself. A compromised
 # private key (file disclosure, backup exposure) silently lets anyone forge
 # valid Reality connections — until you rotate. Quarterly rotation shrinks
@@ -26,7 +26,7 @@
 #      profile URL on a schedule (Windows updater + mobile
 #      auto_update_interval), so the practical outage window is one poll
 #      cycle. Schedule rotation when a brief outage is acceptable.
-#   5. Notify via $NOTIFY if set (same hook as rotate-short-ids.sh).
+#   5. Notify via $NOTIFY if set (same hook as rotate-shortids.sh).
 #
 # Invocation: run manually or via cron. Suggested cadence: quarterly
 # (`0 4 1 */3 *`). Absolutely not monthly — too disruptive for clients
@@ -48,7 +48,7 @@ NOTIFY="${NOTIFY:-}"
 TS=$(date -u +%Y%m%dT%H%M%SZ)
 # `-reality-` infix distinguishes these backups from short_id rotation
 # backups (`.bak-shortid-*`), so each script's retention trim only touches
-# its own family. See rotate-short-ids.sh for the matching pattern.
+# its own family. See rotate-shortids.sh for the matching pattern.
 BAK="${SECRETS}.bak-reality-${TS}"
 # Keep the 3 most recent reality-key backups. Reality rotation runs
 # quarterly, so 3 = 9 months of rollback history — enough to diff across

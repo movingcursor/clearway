@@ -208,9 +208,9 @@ quarterly that they're still firing:
 
 - `safe-restart.sh` — invoked by `render.py --server-apply` on every
   cred rotation; should run cleanly, no error notifications.
-- `rotate-short-ids.sh` — monthly; cred rotation with 2h grace.
+- `rotate-shortids.sh` — monthly; cred rotation with 2h grace.
 - `rotate-hy2-cert.sh` — yearly; flag-day for hy2 specifically.
-- `rotate-reality-key.sh` — quarterly; flag-day for Reality.
+- `rotate-realitykey.sh` — quarterly; flag-day for Reality.
 - `bump-image.sh` — monthly; controlled image-digest upgrade.
 
 A silent cron is a dead cron. Wire a `NOTIFY=` script (Discord, Slack,
