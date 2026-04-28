@@ -8,7 +8,7 @@ services:
     # malicious re-tag of :latest can't affect us until an operator reviews
     # release notes and runs bump-image.sh. Watchtower (and similar
     # tools) skip containers pinned by digest by default.
-    image: ghcr.io/sagernet/sing-box:latest@sha256:9eccbbae748c124f5dd682ce5f7284c83f3e232678e37be715348fdaa467a77f
+    image: ghcr.io/sagernet/sing-box:latest@sha256:9bed1fcb406bd971d1b48c7f824e5128d63543ca278cdcd6b5737c19941e404d
     container_name: singbox-server
     restart: unless-stopped
     # host networking: sing-box binds directly to 0.0.0.0:8443 on the host and
@@ -105,5 +105,6 @@ services:
       start_period: 30s
     profiles:
       - singbox-server
+      - clearway
       - vpn
       - all

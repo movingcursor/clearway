@@ -18,6 +18,7 @@ services:
     # users with `awg` in protocols actually need awg-server running.
     profiles:
       - awg-server
+      - clearway
       - vpn
       - all
     # NET_ADMIN required: amneziawg-go creates a TUN device and rewrites
