@@ -198,6 +198,78 @@ manually switches lanes in the dashboard when one shape gets flagged.
 | Obfuscated WG handshake         | **AmneziaWG**           | UDP that looks like nothing — junk packets pre-handshake (Jc/Jmin/Jmax),      |
 |                                 |                         | padded init/response (S1/S2), custom magic headers (H1-H4) replacing WG's     |
 
+### How each protocol evades DPI
+
+**VLESS+Reality (TCP/443).** The server completes a real TLS handshake
+against a real third-party site (e.g. `cloud.example.com`) — the client's
+ClientHello carries a Reality public-key probe in its extensions, and if
+it matches, the server takes over and proxies VLESS underneath; if it
+doesn't match (random scanner, GFW prober), the server transparently
+forwards the connection to the real cover site, which completes the
+handshake and serves its actual content. So an active prober sees a
+genuine, valid TLS session to a legitimate site every time. *Trade-off:*
+the chosen cover SNI must be reachable from the VPS and plausible-looking
+("a person at this IP browsing this site"). *Known weakness:* TSPU's
+TCP-freeze / IP-reputation attacks degrade Reality regardless of how
+clean the handshake is — once the VPS IP is flagged, packets get
+throttled or RST'd at the border. This is why AWG exists in parallel.
+
+**VLESS-over-WebSocket via Cloudflare (TCP/443).** Client dials
+Cloudflare's edge, not your VPS. TLS terminates at CF (with ECH on, the
+real SNI is encrypted in the ClientHello — DPI sees only "TLS to
+Cloudflare"). CF upgrades to WebSocket and forwards to your origin;
+VLESS rides inside the WS. *Trade-off:* an extra hop's latency, and
+you inherit Cloudflare's reachability. *Known weakness:* Russia has
+periodically throttled CF's CIDR ranges wholesale (collateral damage
+for them, but they've done it). Also smux on this outbound interacts
+badly with CF's WS buffering and is disabled — see `hazards.md` #3.
+*Survival role:* this is the only inbound that survives "your VPS IP
+is blackholed," because clients aren't dialling your VPS.
+
+**ShadowTLS v3 + Shadowsocks-2022 (TCP/8443).** ShadowTLS performs a
+real TLS handshake to a cover SNI (e.g. `cloud.oracle.com`) to grab a
+legitimate cert chain on the wire, then bridges the TCP stream to a
+Shadowsocks-2022 server underneath. To DPI: a complete TLS handshake
+followed by encrypted payload that's indistinguishable from random.
+SS-2022's multi-user EIH lets one port serve many users with per-user
+PSKs. *Trade-off vs Reality:* the cover handshake is just to grab a
+cert; there's no "if probe fails, transparently proxy to the real
+site." So an active prober who connects without the right PSK gets
+junk back, which is itself a fingerprint. Mitigated with per-user SNI
+pinning. *Known weakness:* mobile sing-box clients break ShadowTLS
+after one probe when the SNI comes from a pool — every mobile user
+needs a pinned `shadowtls_sni` override (`hazards.md` #2).
+
+**Hysteria2 with salamander obfuscation (UDP/443).** Hy2 is QUIC-based,
+but the salamander obfuscator XORs every UDP datagram with a shared
+key. Result: no parseable QUIC Initial frame, no version field, no
+SNI on the wire — just random-looking UDP to a foreign IP. To
+protocol-aware DPI it's "high-throughput unidentified UDP," which
+no signature classifier flags. *Trade-off:* "unidentified UDP to a
+foreign IP" is itself a coarse signal censors can act on at the
+IP/transport layer rather than the protocol layer. *Known weakness:*
+RU TSPU and IR ISPs have demonstrated blanket UDP throttling — when
+they do that, hy2 dies even though no classifier touched it. Also
+sing-box has no per-user bandwidth caps for hy2 (`hazards.md` #7).
+*When it works:* it screams — BBR-style congestion control, no HoL
+blocking, the fastest lane in the mix.
+
+**AmneziaWG (UDP/51820, separate Amnezia VPN app).** Vanilla
+WireGuard's handshake is short, distinctive, and trivially
+fingerprinted (well-known magic bytes, fixed packet sizes, no padding).
+AWG modifies it: junk packets before the handshake (`Jc`/`Jmin`/
+`Jmax`), padded init/response (`S1`/`S2`), and custom magic headers
+(`H1`–`H4`) replacing WG's. The result is UDP that doesn't match any
+known protocol fingerprint. *Trade-off:* official sing-box doesn't
+speak AWG (the only AWG-capable fork is CLI-only, and the iOS App
+Store rejects it), so AWG runs in the separate Amnezia VPN app, not
+in the in-app selector. Two apps to install, not one. *Known
+weakness:* same blanket-UDP-throttling risk as hy2 — both die together
+under IP-level UDP marking. *When to enable it:* RU users where TSPU
+has degraded Reality, IR users where the national firewall pressures
+TLS-shaped traffic. Off by default for CN (the GFW handles
+protocol-aware classifiers but doesn't broadly mark UDP).
+
 **Shared UDP-class risk worth flagging:** AmneziaWG and Hysteria2 both
 die under blanket UDP marking. The protocol-specific classifiers that
 censors actually deploy are uncorrelated, but the IP-level UDP throttling
