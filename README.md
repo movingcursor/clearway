@@ -3,15 +3,38 @@
 [![tests](https://github.com/movingcursor/clearway/actions/workflows/test.yml/badge.svg)](https://github.com/movingcursor/clearway/actions/workflows/test.yml)
 [![license: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 
-Multi-user, multi-protocol [sing-box](https://github.com/SagerNet/sing-box)
-config generator + server stack for households and small teams in (or
-travelling to) restrictive networks.
+## The problem
 
-You write a YAML manifest describing your users, their devices, and which
-of CN / RU / IR they live in or visit. `./render.py` produces a per-device
-sing-box config for each one (Android, iOS, Windows), a hardened
-docker-compose stack for the server side, and a one-liner Windows
-installer that keeps everything auto-updated.
+You want to give a household or small team reliable internet access from
+inside (or while travelling to) China, Russia, or Iran. The constraints
+stack up fast:
+
+- **Commercial VPNs get fingerprinted and blocked** within weeks in these
+  networks; the cat-and-mouse is permanent, not a one-time fix.
+- **[sing-box](https://github.com/SagerNet/sing-box) is the durable answer**,
+  but configuring it correctly for one user across phone + laptop is
+  already fiddly. Doing it for five users across three countries — each
+  needing different routing, different protocols depending on which
+  national firewall they're behind, periodic credential rotation, and
+  client configs that stay in agreement with the server — is a part-time
+  job nobody signed up for.
+- **Per-region routing** matters: a Chinese user wants `bilibili.com`
+  direct, not proxied; a Russian user wants `ru-blocked.srs` proxied and
+  the rest direct; a traveller wants their banking traffic to exit from
+  their home country, not the VPS.
+- **Credential rotation** has to be routine, not a fire drill — but
+  rotating without breaking live clients means you need a grace window
+  on the server and an auto-update path on the client.
+
+## What Clearway is
+
+Clearway is that part-time job in code. You write a YAML manifest
+describing your users, their devices, and which of CN / RU / IR they
+live in or visit. `./render.py` produces a per-device sing-box config
+for each one (Android, iOS, Windows), a hardened docker-compose stack
+for the server side, and a one-liner Windows installer that keeps
+everything auto-updated. Onboarding the sixth user is "add a YAML
+block, re-run render.py, send them a URL."
 
 The default protocol mix — VLESS+Reality on TCP/443, Hysteria2 on UDP/443,
 ShadowTLS+Shadowsocks-2022 on TCP/8443, VLESS-over-WebSocket fronted by
