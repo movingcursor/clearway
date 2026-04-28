@@ -42,7 +42,7 @@ gdrive:Backups/
 ├── singbox-server/
 │   ├── latest/                              (newest sing-box secrets, never pruned)
 │   └── YYYY-MM-DD/                          (15d dated history)
-├── claude-memory/                           (operator notes)
+├── operator-notes/                          (operator notes)
 ├── KEYS/
 │   └── backup.key                           (age private key)
 └── RECOVERY.md                              (this file)

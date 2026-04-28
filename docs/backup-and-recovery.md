@@ -9,7 +9,7 @@ purposes:
 
 | Remote | Role | What's in it | Retention |
 | --- | --- | --- | --- |
-| `gdrive:` (Google Drive) | **Backup home.** Unlimited space, not user-facing. | Everything under `gdrive:Backups/` (docker stack, sing-box secrets, Claude memory, age key). | 15 days on daily archives + dated sing-box snapshots; `latest/` + claude-memory kept forever. |
+| `gdrive:` (Google Drive) | **Backup home.** Unlimited space, not user-facing. | Everything under `gdrive:Backups/` (docker stack, sing-box secrets, operator notes, age key). | 15 days on daily archives + dated sing-box snapshots; `latest/` + operator-notes kept forever. |
 | `onedrive:` (OneDrive) | **User-shared drop.** Regular people navigate to it. | Only `onedrive:Desktop/Configs/<user>/` — per-user VPN configs, installers, READMEs. | N/A (live synced from the server). |
 
 Rule of thumb: if a human end-user needs to read it, OneDrive.
@@ -24,9 +24,7 @@ gdrive:Backups/
 ├── singbox-server/
 │   ├── latest/                              (always the newest snapshot)
 │   └── YYYY-MM-DD/                          (dated snapshots, 15d retention)
-├── claude-memory/                           (markdown memory files, no pruning)
-│   ├── MEMORY.md
-│   └── <feedback|project|reference|user>_*.md
+├── operator-notes/                          (markdown notes, no pruning)
 └── KEYS/
     └── backup.key                           (age private key, 184 B)
 ```
@@ -89,12 +87,13 @@ Why a separate job: these are the single most critical files for
 regenerating every user's profile. A second independent backup path
 narrows the window where a main-backup failure could lose them.
 
-### Claude memory (separate sync)
+### Operator notes (separate sync)
 
-Produced at the end of `backup-streaming-stack.sh` via `rclone sync
-~/.claude/projects/-home-ubuntu/memory → gdrive:Backups/claude-memory/`.
-No pruning — memory files are tiny (<50 KB total today) and are the
-institutional knowledge of prior sessions.
+Produced at the end of `backup-streaming-stack.sh` via an `rclone sync`
+of the operator's local notes directory into
+`gdrive:Backups/operator-notes/`. No pruning — the notes are tiny
+(<50 KB total today) and capture institutional knowledge accumulated
+across operating sessions.
 
 ## Schedule
 
@@ -103,7 +102,7 @@ Daily (UTC):
   03:15   sing-box secrets    → gdrive:Backups/singbox-server/
   07:50   postgres dumps      → /opt/docker/data/_backups/pg/ (host only)
   08:00   main backup         → gdrive:Backups/docker-stack/
-          claude memory sync  → gdrive:Backups/claude-memory/
+          operator notes sync → gdrive:Backups/operator-notes/
 
 Monthly (UTC):
   day 3 @ 09:15  restore drill → verify latest archive, post Discord
