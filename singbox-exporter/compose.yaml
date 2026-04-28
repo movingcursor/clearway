@@ -14,7 +14,7 @@ services:
     volumes:
       # Mount read-only so a running container can't accidentally tamper
       # with the script; all config comes through env.
-      - ${DOCKER_APP_DIR}/singbox-exporter/exporter.py:/app/exporter.py:ro
+      - ${SINGBOX_EXPORTER_DIR}/exporter.py:/app/exporter.py:ro
     # env_file loads CLASH_SECRET regardless of where `docker compose` is
     # invoked. The top-level /opt/docker/.env doesn't carry it, and
     # compose's ${VAR} interpolation only reads .env from the CWD of the
@@ -26,7 +26,7 @@ services:
     # relative env_file paths against the invocation cwd, not the file's
     # own directory, which breaks when -f points outside that cwd).
     env_file:
-      - ${DOCKER_APP_DIR}/singbox-exporter/.env
+      - ${SINGBOX_EXPORTER_DIR}/.env
     environment:
       # Defaults pinned to the singbox-server + Prometheus topology; override
       # via .env if anything moves. 172.17.0.1:9097 is free (node-exporter
