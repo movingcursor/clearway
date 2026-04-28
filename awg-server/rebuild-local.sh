@@ -31,13 +31,26 @@
 #   AWG_SERVER_DIR  Defaults to <script-dir>; holds compose.yaml + safe-restart.sh.
 #   NOTIFY          Optional notification script (Discord webhook etc.).
 #
+# Flags:
+#   --check-only   Build + resolve new digest, print the diff, but skip the
+#                  pin rewrite + restart. Mirrors bump-image.sh's flag.
+#                  Note: the build still runs (that's the only way to know
+#                  what the new digest would be). The new image bytes land
+#                  in the local image store untagged-by-digest; compose
+#                  still resolves the deployed image by its pinned @sha256
+#                  so awg-server stays on the previous build.
+#
 # Exit codes:
-#   0  rebuild + restart succeeded (or no-op: image content unchanged).
+#   0  rebuild + restart succeeded (or no-op: image content unchanged, or
+#      --check-only completed).
 #   1  build failed.
 #   2  pin rewrite or restart failed.
 #   3  pre-flight failed (compose.yaml unreadable, build context missing).
 
 set -u
+
+CHECK_ONLY=0
+[[ "${1:-}" == "--check-only" ]] && CHECK_ONLY=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${BUILD_DIR:-/opt/docker/apps/amneziawg}"
@@ -91,6 +104,18 @@ fi
 
 if [[ "${new_digest}" == "${cur_digest}" ]]; then
   notify "ℹ️ rebuild-local: rebuild produced the same digest ${new_digest} — no-op (upstream commits identical to last build)."
+  exit 0
+fi
+
+# Dry-run exit point. Build done, digest resolved, diff known — stop
+# before mutating compose.yaml or restarting awg-server. The new image
+# bytes are now in the local image store; compose still resolves the
+# deployed image by its pinned @sha256 so the running container is
+# unaffected. Operator re-runs without --check-only to apply (the second
+# build will produce a different digest due to timestamp variance, so
+# the digest reported here is informational, not the one that ships).
+if [[ ${CHECK_ONLY} -eq 1 ]]; then
+  echo "check-only: ${cur_digest} → ${new_digest} would apply"
   exit 0
 fi
 
