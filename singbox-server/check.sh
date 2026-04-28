@@ -93,7 +93,7 @@ report=$'⬆️ sing-box upstream has a newer release:\n'
 report+="  - sing-box: ${cur} → ${upstream}"$'\n'
 report+=$'\nRelease notes: https://github.com/SagerNet/sing-box/releases/tag/'"${upstream_raw}"
 report+=$'\nBump command (registry-pulled, digest-pinned):\n'
-report+=$'  cd /opt/docker/clearway/singbox-server && ./bump-image.sh\n'
-report+=$'\nDry-run first with `--check-only` to see the digest swap and run `sing-box check` against the live config without rewriting compose.yaml.'
+report+=$'  ./bump-image.sh             (run from this dir — rewrites pin + safe-restart)\n'
+report+=$'  ./bump-image.sh --check-only (dry-run: prints digest swap, runs `sing-box check` against the live config, no rewrite)'
 notify "${report}"
 exit 0

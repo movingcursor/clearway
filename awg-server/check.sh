@@ -104,6 +104,6 @@ report=$'⬆️ AmneziaWG upstream has newer commits:\n'
 for line in "${bumps[@]}"; do
   report+="  - ${line}"$'\n'
 done
-report+=$'\nRebuild: `cd /opt/docker/apps/amneziawg && docker compose build --no-cache amneziawg && cd /opt/docker/clearway/awg-server && ./safe-restart.sh`'
+report+=$'\nRebuild: `./rebuild-local.sh` (run from this dir — does the docker build, updates the @sha256:... pin, and safe-restarts).'
 notify "${report}"
 exit 0

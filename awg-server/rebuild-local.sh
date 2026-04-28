@@ -3,9 +3,9 @@
 #
 # When `bump-image.sh` is the right tool: registry-pulled deployments where
 # `amneziavpn/amneziawg-go:latest` exists for your platform. As of 2026-04
-# the upstream image is amd64-only, so ARM hosts (this one) can't use it
-# and instead build the image from source via /opt/docker/apps/amneziawg/.
-# That's what this script automates.
+# the upstream image is amd64-only, so ARM hosts can't use it and need to
+# build from source. The build context lives at `awg-server/build/`
+# (Dockerfile + entrypoint.sh, sibling of compose.yaml).
 #
 # Flow:
 #   1. docker build --no-cache amneziawg:local from the build context.
@@ -26,8 +26,9 @@
 #     via their TG channel, not via GitHub releases).
 #
 # Configuration:
-#   BUILD_DIR     Where the Dockerfile lives. Defaults to /opt/docker/apps/amneziawg.
-#   IMAGE_TAG     Tag for the built image. Defaults to amneziawg:local.
+#   BUILD_DIR       Where the Dockerfile lives. Defaults to <script-dir>/build.
+#                   Override if you keep the build context elsewhere.
+#   IMAGE_TAG       Tag for the built image. Defaults to amneziawg:local.
 #   AWG_SERVER_DIR  Defaults to <script-dir>; holds compose.yaml + safe-restart.sh.
 #   NOTIFY          Optional notification script (Discord webhook etc.).
 #
@@ -53,7 +54,7 @@ CHECK_ONLY=0
 [[ "${1:-}" == "--check-only" ]] && CHECK_ONLY=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_DIR="${BUILD_DIR:-/opt/docker/apps/amneziawg}"
+BUILD_DIR="${BUILD_DIR:-${SCRIPT_DIR}/build}"
 IMAGE_TAG="${IMAGE_TAG:-amneziawg:local}"
 AWG_SERVER_DIR="${AWG_SERVER_DIR:-${SCRIPT_DIR}}"
 COMPOSE="${AWG_SERVER_DIR}/compose.yaml"
