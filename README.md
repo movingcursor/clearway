@@ -75,13 +75,17 @@ clearway/
 │   │                         bind-mount inode change
 │   ├── rotate-hy2-cert.sh    yearly hy2 self-signed cert rotation
 │   └── bump-image.sh         controlled image-digest upgrade
-└── awg-server/               server half — AmneziaWG (opt-in profile)
-    ├── compose.yaml          amneziavpn/amneziawg-go pinned by digest;
-    │                         NET_ADMIN unavoidable for userspace WG, balanced
-    │                         by read-only rootfs, narrow port exposure, etc.
-    ├── safe-restart.sh       structural awk validation + bind-mount inode fix
-    ├── rotate-params.sh      quarterly Jc/Jmin/Jmax/S1/S2/H1-H4 rotation
-    └── bump-image.sh         controlled image-digest upgrade
+├── awg-server/               server half — AmneziaWG (opt-in profile)
+│   ├── compose.yaml          amneziavpn/amneziawg-go pinned by digest;
+│   │                         NET_ADMIN unavoidable for userspace WG, balanced
+│   │                         by read-only rootfs, narrow port exposure, etc.
+│   ├── safe-restart.sh       structural awk validation + bind-mount inode fix
+│   ├── rotate-params.sh      quarterly Jc/Jmin/Jmax/S1/S2/H1-H4 rotation
+│   └── bump-image.sh         controlled image-digest upgrade
+└── singbox-exporter/         optional — Prometheus exporter for sing-box clash_api
+    ├── compose.yaml          host-networked, bearer-auth on /metrics,
+    │                         scoped to 172.17.0.1:9097 (docker0 bridge only)
+    └── exporter.py           Python stdlib only — no extra deps to maintain
 ```
 
 ## Quickstart

@@ -89,6 +89,19 @@ public IP at this stack and start serving real users.
   singbox-server container's non-root UID can bind 443/8443. The
   quickstart already has this; it goes in
   `/etc/sysctl.d/99-singbox-unpriv-port.conf`.
+- [ ] **`net.core.{rmem,wmem}_max=16777216`** — UDP socket buffer ceiling
+  for Hysteria2 (QUIC). Without this, the kernel's default ~208 KiB
+  caps `setsockopt(SO_RCVBUF/SNDBUF)` and throttles QUIC throughput on
+  long-RTT / lossy paths; Hysteria2 upstream recommends 16 MiB so
+  per-socket buffers can grow enough to absorb reorder windows without
+  drops. TCP flows (ShadowTLS, Reality, ws-cf) auto-scale via
+  `net.ipv4.tcp_{r,w}mem` and aren't affected. Goes in
+  `/etc/sysctl.d/99-singbox-quic.conf`:
+  ```
+  net.core.rmem_max = 16777216
+  net.core.wmem_max = 16777216
+  ```
+  Verify after `sysctl --system`: `sysctl net.core.{r,w}mem_max`.
 
 ## Host-system
 
