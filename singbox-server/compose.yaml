@@ -106,5 +106,4 @@ services:
     profiles:
       - singbox-server
       - clearway
-      - vpn
       - all

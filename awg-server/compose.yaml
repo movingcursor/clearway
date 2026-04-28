@@ -19,7 +19,6 @@ services:
     profiles:
       - awg-server
       - clearway
-      - vpn
       - all
     # NET_ADMIN required: amneziawg-go creates a TUN device and rewrites
     # iptables NAT rules in PostUp / PostDown. This is unavoidable for any
