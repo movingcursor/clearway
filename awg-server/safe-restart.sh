@@ -38,8 +38,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AWG_SERVER_DIR="${AWG_SERVER_DIR:-${SCRIPT_DIR}}"
 CONFIG="${AWG_SERVER_DIR}/config/awg0.conf"
 COMPOSE_FILE="${COMPOSE_FILE:-${AWG_SERVER_DIR}/compose.yaml}"
-# .env at the repo root one level up; matches singbox-server's pattern.
-COMPOSE_ENV_FILE="${COMPOSE_ENV_FILE:-${AWG_SERVER_DIR}/../.env}"
+# Compose interpolates ${VNIC_PRIMARY_IP}/${PUID}/${PGID} at parse time;
+# without those resolved, port-bind and `user:` collapse to blank, compose
+# decides the existing container is "different", tries to recreate, hits
+# a name conflict, and the inode-fallback below `docker restart`s the OLD
+# container with the OLD image — silently losing any image bump.
+# Default to the master stack .env (two levels up — this layout puts
+# clearway under /opt/docker/, with the master env at /opt/docker/.env).
+# Override with COMPOSE_ENV_FILE for non-standard layouts. The repo-level
+# /opt/docker/clearway/.env is intentionally NOT used — it can be
+# incomplete (missing VNIC_PRIMARY_IP for example).
+COMPOSE_ENV_FILE="${COMPOSE_ENV_FILE:-${AWG_SERVER_DIR}/../../.env}"
 NOTIFY="${NOTIFY:-}"
 DRY_RUN=0
 
@@ -93,14 +102,30 @@ echo "config check passed"
 # 3. Short-circuit if caller only wanted validation.
 [[ ${DRY_RUN} -eq 1 ]] && exit 0
 
-# 4. Reconcile via `up -d`. Profile-scoped so compose doesn't touch
-#    singbox-server or other services. --env-file is explicit because
-#    compose.yaml references ${VNIC_SECONDARY_IP} + ${SINGBOX_SERVER_DIR};
-#    a missing env expansion would silently render a blank port bind.
+# 4. Reconcile via `up -d`. Two layouts supported, detected from the env
+#    file (mirror of singbox-server/safe-restart.sh — see that script for
+#    the longer rationale):
+#
+#    a) Master-stack: env file declares COMPOSE_PROJECT_NAME / COMPOSE_FILE.
+#       Run from the master root without `-f` override, scoped to awg-server
+#       via the trailing service arg. Required to avoid wiping unrelated
+#       containers when the master project is loaded under a single name.
+#
+#    b) Standalone: env file has no project override. Use explicit `-f` +
+#       `--env-file` against this service's compose.yaml.
 id_before=$(docker inspect awg-server -f '{{.Id}}' 2>/dev/null || true)
-compose_args=( --profile awg-server -f "${COMPOSE_FILE}" )
-[[ -f "${COMPOSE_ENV_FILE}" ]] && compose_args+=( --env-file "${COMPOSE_ENV_FILE}" )
-docker compose "${compose_args[@]}" up -d awg-server
+master_root=""
+if [[ -f "${COMPOSE_ENV_FILE}" ]] && \
+   grep -qE '^(COMPOSE_PROJECT_NAME|COMPOSE_FILE)=' "${COMPOSE_ENV_FILE}"; then
+  master_root="$(dirname "${COMPOSE_ENV_FILE}")"
+fi
+if [[ -n "${master_root}" ]]; then
+  ( cd "${master_root}" && docker compose --profile awg-server up -d awg-server )
+else
+  compose_args=( --profile awg-server -f "${COMPOSE_FILE}" )
+  [[ -f "${COMPOSE_ENV_FILE}" ]] && compose_args+=( --env-file "${COMPOSE_ENV_FILE}" )
+  docker compose "${compose_args[@]}" up -d awg-server
+fi
 id_after=$(docker inspect awg-server -f '{{.Id}}' 2>/dev/null || true)
 
 # Force-restart if `up -d` was a no-op. Single-file bind mount on

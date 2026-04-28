@@ -36,7 +36,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SINGBOX_SERVER_DIR="${SINGBOX_SERVER_DIR:-${SCRIPT_DIR}}"
 CONFIG="${SINGBOX_SERVER_DIR}/config.json"
 COMPOSE_FILE="${COMPOSE_FILE:-${SINGBOX_SERVER_DIR}/compose.yaml}"
-COMPOSE_ENV_FILE="${COMPOSE_ENV_FILE:-${SINGBOX_SERVER_DIR}/.env}"
+# Compose interpolates ${PUID}/${PGID}/${SINGBOX_SERVER_DIR}/${VNIC_SECONDARY_IP}
+# at parse time; without those vars resolved, mounts and `user:` collapse to
+# blank, compose decides the existing container is "different", tries to
+# recreate it, hits a name conflict on `singbox-server`, and the inode-fallback
+# below `docker restart`s the OLD container with the OLD image — silently
+# losing any image-pin bump that just happened.
+# Default to the master stack .env (two levels up — this layout puts
+# clearway under /opt/docker/, with the master env at /opt/docker/.env).
+# Override with COMPOSE_ENV_FILE for non-standard layouts.
+COMPOSE_ENV_FILE="${COMPOSE_ENV_FILE:-${SINGBOX_SERVER_DIR}/../../.env}"
 NOTIFY="${NOTIFY:-}"
 IMAGE="ghcr.io/sagernet/sing-box:latest"
 DRY_RUN=0
@@ -89,16 +98,38 @@ echo "config check passed"
 
 # 4. Config valid — reconcile via `up -d`. This recreates the container
 #    if compose.yaml changed (cap set, env, mounts) and is a plain restart
-#    otherwise. Profile scoping prevents compose from touching unrelated
-#    services on the same project. --env-file is explicit because
-#    compose.yaml references ${PUID}/${PGID}/${SINGBOX_SERVER_DIR} —
-#    without it, a missing env expansion would materialise as blank
-#    values and the container would recreate with `user: ":"` or empty
-#    volume paths.
+#    otherwise. Two layouts are supported, detected from the env file:
+#
+#    a) Master-stack layout: env file declares COMPOSE_PROJECT_NAME and
+#       (typically) COMPOSE_FILE, indicating clearway is embedded in a
+#       larger compose project (e.g. /opt/docker/.env with PROJECT_NAME=aio
+#       and COMPOSE_FILE pointing at a master compose with `include:`s).
+#       In that case we MUST run compose from the master root with no
+#       `-f` override — passing `-f path/to/this/compose.yaml` while
+#       PROJECT_NAME=aio is loaded makes compose treat the singular
+#       service file as the entire project and remove every other
+#       container in the stack. (Yes, learned this the hard way.)
+#
+#    b) Standalone layout: env file has no PROJECT_NAME / FILE override.
+#       Run with explicit `-f` and `--env-file` pointing at this service's
+#       compose.yaml. This is what a public clearway deploy looks like.
+#
+#    Both modes scope the operation to `singbox-server` via the trailing
+#    service argument so `up -d` only acts on this service even when the
+#    master compose includes many.
 id_before=$(docker inspect singbox-server -f '{{.Id}}' 2>/dev/null || true)
-compose_args=( --profile singbox-server -f "${COMPOSE_FILE}" )
-[[ -f "${COMPOSE_ENV_FILE}" ]] && compose_args+=( --env-file "${COMPOSE_ENV_FILE}" )
-docker compose "${compose_args[@]}" up -d singbox-server
+master_root=""
+if [[ -f "${COMPOSE_ENV_FILE}" ]] && \
+   grep -qE '^(COMPOSE_PROJECT_NAME|COMPOSE_FILE)=' "${COMPOSE_ENV_FILE}"; then
+  master_root="$(dirname "${COMPOSE_ENV_FILE}")"
+fi
+if [[ -n "${master_root}" ]]; then
+  ( cd "${master_root}" && docker compose --profile singbox-server up -d singbox-server )
+else
+  compose_args=( --profile singbox-server -f "${COMPOSE_FILE}" )
+  [[ -f "${COMPOSE_ENV_FILE}" ]] && compose_args+=( --env-file "${COMPOSE_ENV_FILE}" )
+  docker compose "${compose_args[@]}" up -d singbox-server
+fi
 id_after=$(docker inspect singbox-server -f '{{.Id}}' 2>/dev/null || true)
 
 # Force-restart if `up -d` was a no-op (container ID unchanged). sing-box's
