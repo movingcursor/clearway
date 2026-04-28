@@ -27,7 +27,7 @@
 #
 # Exit codes:
 #   0  config valid, restart issued
-#   1  config invalid, restart skipped
+#   1  config invalid OR required compose env vars unresolved, restart skipped
 #   2  something else went wrong (docker missing, compose error)
 
 set -u
@@ -117,19 +117,44 @@ echo "config check passed"
 #    Both modes scope the operation to `singbox-server` via the trailing
 #    service argument so `up -d` only acts on this service even when the
 #    master compose includes many.
-id_before=$(docker inspect singbox-server -f '{{.Id}}' 2>/dev/null || true)
 master_root=""
 if [[ -f "${COMPOSE_ENV_FILE}" ]] && \
    grep -qE '^(COMPOSE_PROJECT_NAME|COMPOSE_FILE)=' "${COMPOSE_ENV_FILE}"; then
   master_root="$(dirname "${COMPOSE_ENV_FILE}")"
 fi
-if [[ -n "${master_root}" ]]; then
-  ( cd "${master_root}" && docker compose --profile singbox-server up -d singbox-server )
-else
-  compose_args=( --profile singbox-server -f "${COMPOSE_FILE}" )
-  [[ -f "${COMPOSE_ENV_FILE}" ]] && compose_args+=( --env-file "${COMPOSE_ENV_FILE}" )
-  docker compose "${compose_args[@]}" up -d singbox-server
+run_compose() {
+  if [[ -n "${master_root}" ]]; then
+    ( cd "${master_root}" && docker compose --profile singbox-server "$@" )
+  else
+    local args=( --profile singbox-server -f "${COMPOSE_FILE}" )
+    [[ -f "${COMPOSE_ENV_FILE}" ]] && args+=( --env-file "${COMPOSE_ENV_FILE}" )
+    docker compose "${args[@]}" "$@"
+  fi
+}
+
+# 4a. Pre-flight: probe interpolation. The hazard documented in the header
+#     comment is that an empty SINGBOX_SERVER_DIR / VNIC_SECONDARY_IP /
+#     PUID / PGID makes compose see a "different" container shape, fail to
+#     recreate on the `singbox-server` name conflict, and the inode-fallback
+#     below docker-restarts the OLD container — silently undoing any
+#     image-pin bump that just landed in compose.yaml. `compose config` does
+#     the same interpolation `up -d` will, without touching state, and emits
+#     one `WARN[...] The "FOO" variable is not set.` per unresolved var to
+#     stderr. Parse those, fail closed before a single byte reaches Docker.
+required_vars='SINGBOX_SERVER_DIR|VNIC_SECONDARY_IP|PUID|PGID'
+probe_stderr=$(run_compose config singbox-server 2>&1 >/dev/null)
+unresolved=$(echo "${probe_stderr}" \
+  | awk -F'"' '/variable is not set/ {print $2}' \
+  | grep -E "^(${required_vars})$" \
+  | sort -u | tr '\n' ' ')
+unresolved="${unresolved% }"
+if [[ -n "${unresolved}" ]]; then
+  notify "🚫 singbox-server safe-restart: compose env vars unresolved — \`${unresolved}\`. Restart NOT issued, running container untouched. Set them in \`${COMPOSE_ENV_FILE}\` (see clearway/docs/quickstart.md) or export in your shell, then re-run."
+  exit 1
 fi
+
+id_before=$(docker inspect singbox-server -f '{{.Id}}' 2>/dev/null || true)
+run_compose up -d singbox-server
 id_after=$(docker inspect singbox-server -f '{{.Id}}' 2>/dev/null || true)
 
 # Force-restart if `up -d` was a no-op (container ID unchanged). sing-box's

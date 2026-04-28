@@ -29,7 +29,7 @@
 #
 # Exit codes:
 #   0  config valid, restart issued
-#   1  config invalid, restart skipped
+#   1  config invalid OR required compose env vars unresolved, restart skipped
 #   2  something else went wrong (docker missing, compose error)
 
 set -u
@@ -38,11 +38,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AWG_SERVER_DIR="${AWG_SERVER_DIR:-${SCRIPT_DIR}}"
 CONFIG="${AWG_SERVER_DIR}/config/awg0.conf"
 COMPOSE_FILE="${COMPOSE_FILE:-${AWG_SERVER_DIR}/compose.yaml}"
-# Compose interpolates ${VNIC_PRIMARY_IP}/${PUID}/${PGID} at parse time;
-# without those resolved, port-bind and `user:` collapse to blank, compose
-# decides the existing container is "different", tries to recreate, hits
-# a name conflict, and the inode-fallback below `docker restart`s the OLD
-# container with the OLD image — silently losing any image bump.
+# Compose interpolates ${SINGBOX_SERVER_DIR} and ${VNIC_PRIMARY_IP} at
+# parse time; without those resolved, the awg0.conf bind-mount path and
+# port-bind collapse to blank, compose decides the existing container is
+# "different", tries to recreate, hits a name conflict, and the inode-
+# fallback below `docker restart`s the OLD container with the OLD image —
+# silently losing any image bump. The pre-flight probe below catches this.
 # Default to the master stack .env (two levels up — this layout puts
 # clearway under /opt/docker/, with the master env at /opt/docker/.env).
 # Override with COMPOSE_ENV_FILE for non-standard layouts. The repo-level
@@ -113,19 +114,41 @@ echo "config check passed"
 #
 #    b) Standalone: env file has no project override. Use explicit `-f` +
 #       `--env-file` against this service's compose.yaml.
-id_before=$(docker inspect awg-server -f '{{.Id}}' 2>/dev/null || true)
 master_root=""
 if [[ -f "${COMPOSE_ENV_FILE}" ]] && \
    grep -qE '^(COMPOSE_PROJECT_NAME|COMPOSE_FILE)=' "${COMPOSE_ENV_FILE}"; then
   master_root="$(dirname "${COMPOSE_ENV_FILE}")"
 fi
-if [[ -n "${master_root}" ]]; then
-  ( cd "${master_root}" && docker compose --profile awg-server up -d awg-server )
-else
-  compose_args=( --profile awg-server -f "${COMPOSE_FILE}" )
-  [[ -f "${COMPOSE_ENV_FILE}" ]] && compose_args+=( --env-file "${COMPOSE_ENV_FILE}" )
-  docker compose "${compose_args[@]}" up -d awg-server
+run_compose() {
+  if [[ -n "${master_root}" ]]; then
+    ( cd "${master_root}" && docker compose --profile awg-server "$@" )
+  else
+    local args=( --profile awg-server -f "${COMPOSE_FILE}" )
+    [[ -f "${COMPOSE_ENV_FILE}" ]] && args+=( --env-file "${COMPOSE_ENV_FILE}" )
+    docker compose "${args[@]}" "$@"
+  fi
+}
+
+# 4a. Pre-flight: probe interpolation. Mirror of the singbox-server guard
+#     (see that script for the longer rationale). If SINGBOX_SERVER_DIR or
+#     VNIC_PRIMARY_IP is unresolved, the awg0.conf mount path and the port
+#     bind collapse to "", compose recreate-fails on the name conflict, and
+#     the inode-fallback docker-restarts the OLD container — silently
+#     undoing any image-pin bump that just landed in compose.yaml.
+required_vars='SINGBOX_SERVER_DIR|VNIC_PRIMARY_IP'
+probe_stderr=$(run_compose config awg-server 2>&1 >/dev/null)
+unresolved=$(echo "${probe_stderr}" \
+  | awk -F'"' '/variable is not set/ {print $2}' \
+  | grep -E "^(${required_vars})$" \
+  | sort -u | tr '\n' ' ')
+unresolved="${unresolved% }"
+if [[ -n "${unresolved}" ]]; then
+  notify "🚫 awg-server safe-restart: compose env vars unresolved — \`${unresolved}\`. Restart NOT issued, running container untouched. Set them in \`${COMPOSE_ENV_FILE}\` (see clearway/docs/quickstart.md) or export in your shell, then re-run."
+  exit 1
 fi
+
+id_before=$(docker inspect awg-server -f '{{.Id}}' 2>/dev/null || true)
+run_compose up -d awg-server
 id_after=$(docker inspect awg-server -f '{{.Id}}' 2>/dev/null || true)
 
 # Force-restart if `up -d` was a no-op. Single-file bind mount on
