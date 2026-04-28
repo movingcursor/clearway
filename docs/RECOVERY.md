@@ -196,7 +196,7 @@ done
 
 ```bash
 cd /opt/docker
-./scripts/up.sh     # layer-by-layer bring-up (security → clearway/egress → debrid+indexing → arr/media-server → stremio-addons)
+./scripts/cold-boot.sh     # layer-by-layer bring-up (security → clearway/egress → debrid+indexing → arr/media-server → stremio-addons)
 ```
 
 Wait a couple of minutes, then:
@@ -220,8 +220,8 @@ can skip steps 5–9 and pull directly from the sing-box-specific
 backup:
 
 ```bash
-rclone copy gdrive:Backups/singbox-server/latest/ /opt/docker/apps/singbox-profiles/
-cd /opt/docker/apps/singbox-profiles && ./render.py -y
+rclone copy gdrive:Backups/singbox-server/latest/ /opt/docker/clearway/singbox-profiles/
+cd /opt/docker/clearway/singbox-profiles && ./render.py -y
 ```
 
 This reconstitutes `.secrets.yaml`, `profiles.yaml`, Hysteria2 cert + key,

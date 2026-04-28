@@ -78,7 +78,7 @@ library, docker image layers.
 
 ### Sing-box server secrets (separate job)
 
-Produced by `/opt/docker/apps/singbox-server/backup-secrets.sh` at
+Produced by `/opt/docker/clearway/singbox-server/backup-secrets.sh` at
 03:15 UTC. Pushes `.secrets.yaml`, `profiles.yaml`, `secrets.txt`,
 `.pending-rotations.yaml`, `hy2.crt/.key` to
 `gdrive:Backups/singbox-server/{latest, YYYY-MM-DD}/`. 15-day retention
@@ -229,8 +229,8 @@ of `.secrets.yaml`):
 
 ```bash
 # Pull from the latest copy directly
-rclone copy gdrive:Backups/singbox-server/latest/ /opt/docker/apps/singbox-profiles/
-cd /opt/docker/apps/singbox-profiles && ./render.py -y
+rclone copy gdrive:Backups/singbox-server/latest/ /opt/docker/clearway/singbox-profiles/
+cd /opt/docker/clearway/singbox-profiles && ./render.py -y
 ```
 
 ## Restore drill
@@ -294,7 +294,7 @@ None of these are blocking; L1 (pg dumps) + L2 (age encryption) + L6
 ## References
 
 - `/opt/docker/scripts/README.md` — script catalog (one-liner per script).
-- `/opt/docker/apps/README.md` — app-specific scripts catalog.
+- `/opt/docker/aio/README.md` (deleted 2026-04-28; per-app scripts catalog was retired) — app-specific scripts catalog.
 - `/opt/docker/clearway/docs/discord-notifications.md` — notification inventory.
 - Memory: `project_backup_strategy_2026_04_24.md` — condensed version
   of this doc for future-session context pickup.
