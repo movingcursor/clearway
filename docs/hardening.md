@@ -110,7 +110,7 @@ public IP at this stack and start serving real users.
   chmod 0700 singbox-profiles/home_wg
   ```
 - [ ] **Image bumps cadence.** sing-box releases regularly with
-  bug/security fixes. `singbox-server/bump-singbox-image.sh` validates
+  bug/security fixes. `singbox-server/bump-image.sh` validates
   the new image with `sing-box check` before swapping the digest pin.
   Run it monthly via cron (the quickstart has the line). Skipping bumps
   for >6 months means missing real CVEs. If you have AWG enabled, run
@@ -211,7 +211,7 @@ quarterly that they're still firing:
 - `rotate-short-ids.sh` — monthly; cred rotation with 2h grace.
 - `rotate-hy2-cert.sh` — yearly; flag-day for hy2 specifically.
 - `rotate-reality-key.sh` — quarterly; flag-day for Reality.
-- `bump-singbox-image.sh` — monthly; controlled image-digest upgrade.
+- `bump-image.sh` — monthly; controlled image-digest upgrade.
 
 A silent cron is a dead cron. Wire a `NOTIFY=` script (Discord, Slack,
 or your own webhook) into each so a failure pings someone. The

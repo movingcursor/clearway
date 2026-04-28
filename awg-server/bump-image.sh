@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # bump-image.sh — controlled upgrade of the awg-server (amneziawg-go) image.
 #
-# Mirrors singbox-server/bump-singbox-image.sh. The compose pins by digest
+# Mirrors singbox-server/bump-image.sh. The compose pins by digest
 # so a Docker Hub credential compromise can't silently push a backdoor; the
 # tradeoff is that legitimate upgrades require this conscious bump step.
 #

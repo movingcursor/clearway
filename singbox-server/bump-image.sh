@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bump-singbox-image.sh — controlled upgrade of the sing-box server image.
+# bump-image.sh — controlled upgrade of the sing-box server image.
 #
 # The singbox-server compose pins the image by digest (not :latest) so a
 # compromise of ghcr.io/sagernet can't silently push a backdoor to a

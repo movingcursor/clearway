@@ -305,7 +305,7 @@ The TCP/443 rule (Reality) stays — different protocol, different rule.
 
 ## 11. AWG obfuscation params silently mismatch on rotation
 
-**Symptom.** After running `awg-server/rotate-awg-params.sh`, AWG clients
+**Symptom.** After running `awg-server/rotate-params.sh`, AWG clients
 who haven't re-imported their `.conf` get a hung "connecting" state in
 the Amnezia VPN app — no error, no log line on either side, just a dead
 handshake.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-upstream-awg.sh — compare the running awg-server's amneziawg-go +
+# check-upstream.sh — compare the running awg-server's amneziawg-go +
 # amneziawg-tools versions against upstream master HEAD and report when
 # a newer commit exists. Designed for source-built deployments (the ARM-
 # host path that can't pull amneziavpn/amneziawg-go from Docker Hub) —
@@ -13,7 +13,7 @@
 #   - amnezia-vpn/amneziawg-tools master HEAD commit date vs the container's
 #     `awg --version` (also a date-stamped form).
 #
-# What it doesn't do: actually rebuild the image. That's `rebuild-local-awg.sh`
+# What it doesn't do: actually rebuild the image. That's `rebuild-local.sh`
 # in this same directory (build + read new Id + rewrite the @sha256:... pin
 # in compose.yaml + safe-restart) — or `bump-image.sh` for registry-pulled
 # deployments where upstream publishes amneziavpn/amneziawg-go for your

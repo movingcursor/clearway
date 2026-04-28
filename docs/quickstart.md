@@ -227,7 +227,7 @@ For monthly image bumps:
 
 ```cron
 # Monthly sing-box image bump (digest pin update). 04:00 UTC on the 5th.
-0 4 5 * *  /opt/clearway/singbox-server/bump-singbox-image.sh
+0 4 5 * *  /opt/clearway/singbox-server/bump-image.sh
 ```
 
 If you want notifications for any of these (success / failure pings to
@@ -387,7 +387,7 @@ tuple). Cost: every AWG client must re-import their `.conf`.
 ```cron
 # Quarterly AWG obfuscation rotation. Schedule for a low-traffic window —
 # every AWG client will need to re-import their .conf after this fires.
-0 6 1 */3 *  /opt/clearway/awg-server/rotate-awg-params.sh
+0 6 1 */3 *  /opt/clearway/awg-server/rotate-params.sh
 ```
 
 ### Bump the awg-server image

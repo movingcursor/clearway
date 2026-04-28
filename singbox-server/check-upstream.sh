@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-# check-upstream-singbox.sh — compare the running singbox-server's sing-box
+# check-upstream.sh — compare the running singbox-server's sing-box
 # version against SagerNet/sing-box's latest GitHub release and report
-# when a newer one exists. Mirrors check-upstream-awg.sh's shape.
+# when a newer one exists. Mirrors awg-server/check-upstream.sh's shape.
 #
 # What it checks:
 #   - The container's `sing-box version` output (semver, e.g. 1.13.10).
 #   - The latest non-prerelease tag on github.com/SagerNet/sing-box.
 #   - If `latest` > `current`, emit a bump report with the rebuild command.
 #
-# What it doesn't do: actually run the bump. That's bump-singbox-image.sh
-# which pulls the new digest from ghcr, validates with `sing-box check`
-# against the live config, and rewrites compose.yaml + safe-restart's.
-# Auto-bumping defeats the digest-pin philosophy (see docs/architecture.md).
+# What it doesn't do: actually run the bump. That's bump-image.sh
+# in this same directory, which pulls the new digest from ghcr, validates
+# with `sing-box check` against the live config, and rewrites compose.yaml
+# + safe-restarts. Auto-bumping defeats the digest-pin philosophy (see
+# docs/architecture.md).
 #
 # Configuration:
 #   SINGBOX_CONTAINER  Container name. Defaults to `singbox-server`.
@@ -92,7 +93,7 @@ report=$'⬆️ sing-box upstream has a newer release:\n'
 report+="  - sing-box: ${cur} → ${upstream}"$'\n'
 report+=$'\nRelease notes: https://github.com/SagerNet/sing-box/releases/tag/'"${upstream_raw}"
 report+=$'\nBump command (registry-pulled, digest-pinned):\n'
-report+=$'  cd /opt/docker/clearway/singbox-server && ./bump-singbox-image.sh\n'
+report+=$'  cd /opt/docker/clearway/singbox-server && ./bump-image.sh\n'
 report+=$'\nDry-run first with `--check-only` to see the digest swap and run `sing-box check` against the live config without rewriting compose.yaml.'
 notify "${report}"
 exit 0

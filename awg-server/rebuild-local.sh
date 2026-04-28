@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# rebuild-local-awg.sh — local-build counterpart to bump-image.sh.
+# rebuild-local.sh — local-build counterpart to bump-image.sh.
 #
 # When `bump-image.sh` is the right tool: registry-pulled deployments where
 # `amneziavpn/amneziawg-go:latest` exists for your platform. As of 2026-04
@@ -17,7 +17,7 @@
 #      running container.
 #
 # When to run:
-#   - check-upstream-awg.sh's weekly remote routine opens a GitHub issue
+#   - check-upstream.sh's weekly remote routine opens a GitHub issue
 #     when amnezia-vpn/amneziawg-go or /amneziawg-tools master HEAD is
 #     newer than the embedded baseline. Closing the issue means "rebuilt"
 #     or "skipping this week"; closing it without rebuilding means the
@@ -56,17 +56,17 @@ notify() {
 
 # Pre-flight: build context + compose readable.
 if [[ ! -f "${BUILD_DIR}/Dockerfile" ]]; then
-  notify "🚫 rebuild-local-awg: \`${BUILD_DIR}/Dockerfile\` missing — set BUILD_DIR or restore the build context"
+  notify "🚫 rebuild-local: \`${BUILD_DIR}/Dockerfile\` missing — set BUILD_DIR or restore the build context"
   exit 3
 fi
 if [[ ! -w "${COMPOSE}" ]]; then
-  notify "🚫 rebuild-local-awg: \`${COMPOSE}\` not writable — pin can't be updated"
+  notify "🚫 rebuild-local: \`${COMPOSE}\` not writable — pin can't be updated"
   exit 3
 fi
 
 cur_pin=$(grep -oE 'amneziawg:local@sha256:[a-f0-9]{64}' "${COMPOSE}" | head -1)
 if [[ -z "${cur_pin}" ]]; then
-  notify "🚫 rebuild-local-awg: \`${COMPOSE}\` doesn't contain an \`amneziawg:local@sha256:...\` pin to update"
+  notify "🚫 rebuild-local: \`${COMPOSE}\` doesn't contain an \`amneziawg:local@sha256:...\` pin to update"
   exit 3
 fi
 cur_digest="${cur_pin#amneziawg:local@}"
@@ -76,7 +76,7 @@ cur_digest="${cur_pin#amneziawg:local@}"
 #    the operator see progress when run interactively.
 echo "── Building ${IMAGE_TAG} from ${BUILD_DIR} (--no-cache) ────────────"
 if ! (cd "${BUILD_DIR}" && docker build --no-cache -t "${IMAGE_TAG}" . ); then
-  notify "❌ rebuild-local-awg: docker build failed. Pin unchanged at ${cur_digest}; running container untouched."
+  notify "❌ rebuild-local: docker build failed. Pin unchanged at ${cur_digest}; running container untouched."
   exit 1
 fi
 
@@ -85,12 +85,12 @@ fi
 #    Id is exactly what `image: tag@sha256:...` resolves against locally.
 new_digest=$(docker image inspect "${IMAGE_TAG}" --format '{{.Id}}' 2>/dev/null)
 if [[ -z "${new_digest}" || "${new_digest}" != sha256:* ]]; then
-  notify "🚫 rebuild-local-awg: could not resolve Id for ${IMAGE_TAG} after build. Pin unchanged."
+  notify "🚫 rebuild-local: could not resolve Id for ${IMAGE_TAG} after build. Pin unchanged."
   exit 2
 fi
 
 if [[ "${new_digest}" == "${cur_digest}" ]]; then
-  notify "ℹ️ rebuild-local-awg: rebuild produced the same digest ${new_digest} — no-op (upstream commits identical to last build)."
+  notify "ℹ️ rebuild-local: rebuild produced the same digest ${new_digest} — no-op (upstream commits identical to last build)."
   exit 0
 fi
 
@@ -98,20 +98,20 @@ fi
 #    amneziawg:local line) so unrelated digest pins on other images in the
 #    same compose can't accidentally match.
 if ! sed -i "s|amneziawg:local@sha256:[a-f0-9]\{64\}|amneziawg:local@${new_digest}|" "${COMPOSE}"; then
-  notify "🚫 rebuild-local-awg: failed to rewrite pin in ${COMPOSE}. Image built but compose unchanged."
+  notify "🚫 rebuild-local: failed to rewrite pin in ${COMPOSE}. Image built but compose unchanged."
   exit 2
 fi
 
 # Sanity-check the rewrite landed.
 if ! grep -q "amneziawg:local@${new_digest}" "${COMPOSE}"; then
-  notify "🚫 rebuild-local-awg: pin rewrite did not stick in ${COMPOSE}. Inspect manually."
+  notify "🚫 rebuild-local: pin rewrite did not stick in ${COMPOSE}. Inspect manually."
   exit 2
 fi
 
 # 4. Apply via safe-restart (validates config + bounces container).
 echo "── Applying via safe-restart.sh ────────────────────────────────────"
 if ! "${AWG_SERVER_DIR}/safe-restart.sh"; then
-  notify "🚨 rebuild-local-awg: safe-restart.sh failed AFTER pin rewrite. Pin in compose: ${new_digest}; running container may be on the previous image. Inspect with \`docker logs awg-server\`."
+  notify "🚨 rebuild-local: safe-restart.sh failed AFTER pin rewrite. Pin in compose: ${new_digest}; running container may be on the previous image. Inspect with \`docker logs awg-server\`."
   exit 2
 fi
 
@@ -119,7 +119,7 @@ fi
 go_ver=$(docker exec awg-server amneziawg-go --version 2>&1 | head -1 || echo "<unknown>")
 tools_ver=$(docker exec awg-server awg --version 2>&1 | head -1 || echo "<unknown>")
 
-notify "✅ rebuild-local-awg: rebuilt ${IMAGE_TAG}.
+notify "✅ rebuild-local: rebuilt ${IMAGE_TAG}.
   digest: ${cur_digest} → ${new_digest}
   amneziawg-go: ${go_ver}
   amneziawg-tools: ${tools_ver}

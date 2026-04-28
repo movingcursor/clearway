@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# rotate-awg-params.sh — generate fresh AWG obfuscation params, update
+# rotate-params.sh — generate fresh AWG obfuscation params, update
 # .secrets.yaml, re-render every per-user .conf + the awg-server config,
 # restart awg-server.
 #
@@ -110,7 +110,7 @@ def gen():
 
 m = re.search(r'^(awg:\s*\n(?:[ \t].*\n)*)', text, flags=re.MULTILINE)
 if not m:
-    sys.exit('rotate-awg-params.sh: awg block not found in .secrets.yaml')
+    sys.exit('rotate-params.sh: awg block not found in .secrets.yaml')
 block = m.group(1)
 new_block = block
 for key, val in gen():

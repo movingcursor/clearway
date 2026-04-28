@@ -6,7 +6,7 @@ services:
     # within hours, with clients auto-fetching their configs against a
     # backdoored server. Pin-by-digest means the image is immutable — a
     # malicious re-tag of :latest can't affect us until an operator reviews
-    # release notes and runs bump-singbox-image.sh. Watchtower (and similar
+    # release notes and runs bump-image.sh. Watchtower (and similar
     # tools) skip containers pinned by digest by default.
     image: ghcr.io/sagernet/sing-box:latest@sha256:9eccbbae748c124f5dd682ce5f7284c83f3e232678e37be715348fdaa467a77f
     container_name: singbox-server

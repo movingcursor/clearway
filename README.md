@@ -74,13 +74,13 @@ clearway/
 │   ├── safe-restart.sh       sing-box check before reconcile; restart on
 │   │                         bind-mount inode change
 │   ├── rotate-hy2-cert.sh    yearly hy2 self-signed cert rotation
-│   └── bump-singbox-image.sh controlled image-digest upgrade
+│   └── bump-image.sh         controlled image-digest upgrade
 └── awg-server/               server half — AmneziaWG (opt-in profile)
     ├── compose.yaml          amneziavpn/amneziawg-go pinned by digest;
     │                         NET_ADMIN unavoidable for userspace WG, balanced
     │                         by read-only rootfs, narrow port exposure, etc.
     ├── safe-restart.sh       structural awk validation + bind-mount inode fix
-    ├── rotate-awg-params.sh  quarterly Jc/Jmin/Jmax/S1/S2/H1-H4 rotation
+    ├── rotate-params.sh      quarterly Jc/Jmin/Jmax/S1/S2/H1-H4 rotation
     └── bump-image.sh         controlled image-digest upgrade
 ```
 
