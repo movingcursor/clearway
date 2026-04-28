@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-upstream.sh — compare the running awg-server's amneziawg-go +
+# check-upstream-awg.sh — compare the running awg-server's amneziawg-go +
 # amneziawg-tools versions against upstream master HEAD and report when
 # a newer commit exists. Designed for source-built deployments (the ARM-
 # host path that can't pull amneziavpn/amneziawg-go from Docker Hub) —
@@ -13,10 +13,16 @@
 #   - amnezia-vpn/amneziawg-tools master HEAD commit date vs the container's
 #     `awg --version` (also a date-stamped form).
 #
-# What it doesn't do: actually rebuild the image. That's a manual
-# `docker compose build --no-cache` against the build context at
-# /opt/docker/apps/amneziawg/ (or your equivalent), followed by a
-# `safe-restart.sh` from this directory.
+# What it doesn't do: actually rebuild the image. That's `rebuild-local-awg.sh`
+# in this same directory (build + read new Id + rewrite the @sha256:... pin
+# in compose.yaml + safe-restart) — or `bump-image.sh` for registry-pulled
+# deployments where upstream publishes amneziavpn/amneziawg-go for your
+# platform (amd64 only as of 2026-04).
+#
+# Sibling: a weekly remote agent (the `awg-upstream-check` routine) opens
+# a GitHub issue at movingcursor/clearway when this same comparison flags
+# a newer upstream — that's the user-facing notification path. This script
+# is the local-host equivalent for ad-hoc operator checks.
 #
 # Configuration:
 #   AWG_CONTAINER  Container name. Defaults to `awg-server` (the clearway-
