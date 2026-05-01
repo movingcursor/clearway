@@ -77,6 +77,9 @@ scripts that don't generalize.
 
 ```
 clearway/
+├── Taskfile.yml              go-task entrypoint — render, verify, restart,
+│                             bump, upstream check, all rotation tiers,
+│                             clearway:rotations. See § Operations.
 ├── singbox-profiles/         renderer half
 │   ├── render.py             reads profiles.yaml + .secrets.yaml + home_wg/
 │   │                         emits per-device client configs (singbox + AWG),
@@ -133,6 +136,51 @@ Onboarding a user is `add a YAML block + ./render.py`; users get a
 per-device URL (`https://${PROFILE_HOST}/p/<secret>/`) with a generated
 README and either a sing-box remote-profile URL (mobile) or a one-liner
 PowerShell install command (Windows).
+
+## Operations
+
+Day-to-day operator tasks are exposed via [go-task](https://taskfile.dev)
+in [`Taskfile.yml`](Taskfile.yml). Install:
+
+```sh
+sudo snap install task --classic     # Ubuntu/Debian
+brew install go-task/tap/go-task     # macOS
+```
+
+`task -l` lists everything; the most-used are:
+
+| Task | Purpose |
+|---|---|
+| `task render` | render.py with diff preview + apply prompt |
+| `task render:dry` | dry-run, show what would change |
+| `task render:apply` | render + apply (no prompt; cron-safe) |
+| `task verify` | run all clearway sanity checks (hy2 cert window, render --validate, golden tests) |
+| `task singbox:restart` / `task awg:restart` | safe-restart with config validation + bind-mount inode-safe fallback |
+| `task singbox:check` / `task awg:check` | check upstream for a newer release |
+| `task singbox:bump` / `task awg:bump` | controlled image-digest bump (validates against live config first) |
+| `task clearway:rotations` | last-fire + next-fire date for each rotation tier |
+
+### Rotation tiers
+
+Four credential/parameter rotations on a tiered cadence:
+
+| Tier | Task | Cadence | Continuity |
+|---|---|---|---|
+| Reality short_id | `task singbox:rotate-shortids` | monthly | **zero-downtime** — server keeps old IDs live for a 2h grace window via `.pending-rotations.yaml`; clients pick up new IDs on next poll |
+| Reality keypair | `task singbox:rotate-realitykey` | quarterly | flag day — no grace window (single server keypair); clients fail Reality handshakes until next poll. ShadowTLS / Hysteria2 / WS-CDN unaffected, urltest carries traffic during the gap |
+| Hysteria2 cert | `task singbox:rotate-hy2` | yearly | flag day for hy2 only — no dual-cert window in TLS; other inbounds unaffected |
+| AWG params | `task awg:rotate-params` | manual | flag day — every device must MANUALLY re-import its `.conf`; the Amnezia VPN app does NOT auto-refresh imported configs |
+
+The flag-day tasks have built-in `prompt:` confirmations so a typo'd
+tab-completion doesn't trigger a stack-wide reconnect; bypass with
+`task -y <task>` for non-interactive runs. Cron is unaffected (it
+invokes the scripts directly, not through `task`).
+
+Set `NOTIFY=/path/to/notify.sh` in the rotation script env (or wire
+through a Discord helper like the household one in
+[`singbox-server/check-config-drift.sh`](singbox-server/check-config-drift.sh))
+to get rich rotation notifications: scheme, cadence, continuity model,
+device count, next-fire date.
 
 ## Documentation
 

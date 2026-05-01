@@ -44,8 +44,20 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 SECRETS="${ROOT}/.secrets.yaml"
-NOTIFY="${NOTIFY:-}"
+NOTIFY="${NOTIFY:-/opt/docker/scripts/notify-discord.sh}"
 TS=$(date -u +%Y%m%dT%H%M%SZ)
+
+# Next quarterly rotation = next 1st-of-month in {Jan, Apr, Jul, Oct}.
+# Computed at runtime so the notification stays accurate even if cron drifts.
+NEXT_ROTATION=$(python3 -c "
+import datetime
+t = datetime.date.today()
+for y in (t.year, t.year + 1):
+    for m in (1, 4, 7, 10):
+        d = datetime.date(y, m, 1)
+        if d > t:
+            print(d.isoformat()); raise SystemExit
+")
 # `-reality-` infix distinguishes these backups from short_id rotation
 # backups (`.bak-shortid-*`), so each script's retention trim only touches
 # its own family. See rotate-shortids.sh for the matching pattern.
@@ -67,7 +79,7 @@ notify() {
 # A stale broken state would otherwise strand us with the old key in
 # .secrets.yaml.bak and no viable render.
 if ! "${ROOT}/render.py" --validate >/dev/null 2>&1; then
-  notify "🚨 reality-key rotation **ABORTED**: pre-flight \`render.py --validate\` failed — fix the manifest first"
+  notify "🚨 **Reality keypair rotation ABORTED** (quarterly tier) — pre-flight \`render.py --validate\` failed; fix the manifest first"
   echo "pre-flight validate failed — aborting" >&2
   exit 1
 fi
@@ -75,7 +87,7 @@ fi
 # Generate keypair via the same image the server runs so the public-key
 # format is guaranteed to match (upstream sometimes tweaks base64 padding).
 GEN=$(docker run --rm ghcr.io/sagernet/sing-box:latest generate reality-keypair 2>&1) || {
-  notify "🚨 reality-key rotation **ABORTED**: sing-box generate reality-keypair failed"
+  notify "🚨 **Reality keypair rotation ABORTED** (quarterly tier) — \`sing-box generate reality-keypair\` failed"
   echo "sing-box generate failed:" >&2
   echo "${GEN}" >&2
   exit 1
@@ -87,7 +99,7 @@ NEW_PRIV=$(awk -F': ' '/^PrivateKey/ {print $2}' <<<"${GEN}")
 NEW_PUB=$(awk -F': ' '/^PublicKey/  {print $2}' <<<"${GEN}")
 
 if [[ -z "${NEW_PRIV}" || -z "${NEW_PUB}" ]]; then
-  notify "🚨 reality-key rotation **ABORTED**: could not parse keypair output"
+  notify "🚨 **Reality keypair rotation ABORTED** (quarterly tier) — could not parse keypair output"
   echo "parse failed, raw output:" >&2
   echo "${GEN}" >&2
   exit 1
@@ -115,7 +127,7 @@ sed -i \
 if ! grep -q "reality_public_key: ${NEW_PUB}" "${SECRETS}" \
    || ! grep -q "reality_private_key: ${NEW_PRIV}" "${SECRETS}"; then
   mv "${BAK}" "${SECRETS}"
-  notify "🚨 reality-key rotation **ABORTED**: sed didn't update both keys — .secrets.yaml restored from backup"
+  notify "🚨 **Reality keypair rotation ABORTED** (quarterly tier) — sed didn't update both keys; \`.secrets.yaml\` restored from backup"
   echo "sed update failed — restored backup" >&2
   exit 1
 fi
@@ -124,12 +136,20 @@ fi
 # If render fails we still have the .bak; operator can rollback with:
 #   mv .secrets.yaml.bak-<TS> .secrets.yaml && ./render.py -y
 if ! "${ROOT}/render.py" -y; then
-  notify "🚨 reality-key rotation **FAILED AT RENDER**: .secrets.yaml has new key but render.py errored — rollback with \`mv ${BAK##*/} .secrets.yaml && ./render.py -y\`"
+  notify "🚨 **Reality keypair rotation FAILED AT RENDER** (quarterly tier) — \`.secrets.yaml\` has new key but render.py errored. Rollback: \`mv ${BAK##*/} .secrets.yaml && ./render.py -y\`"
   echo "render.py failed — manual rollback required" >&2
   exit 1
 fi
 
-notify "🔑 reality-key rotated successfully (new pubkey \`${NEW_PUB:0:12}…\`). Clients pick up on next poll cycle; expect Reality outage for any client that doesn't auto-refresh during this rotation window."
+notify "$(cat <<EOF
+🔑 **Reality keypair rotation** — quarterly tier (1st of Jan/Apr/Jul/Oct @ 04:00 UTC)
+• new pubkey: \`${NEW_PUB:0:12}…\`
+• continuity: ⚠️ flag day — no grace window (single server keypair). Clients fail Reality handshakes until they poll the new pubkey.
+• fallback: ShadowTLS / Hysteria2 / WS-CDN outbounds unaffected; urltest carries traffic during the gap.
+• clients refresh on next poll (Windows updater hourly + boot, mobile per \`auto_update_interval\`)
+• next rotation: **${NEXT_ROTATION}** @ 04:00 UTC
+EOF
+)"
 echo "rotation complete"
 echo "  old backup: ${BAK}"
 echo "  new pubkey: ${NEW_PUB}"

@@ -28,7 +28,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AWG_SERVER_DIR="${AWG_SERVER_DIR:-${SCRIPT_DIR}}"
 PROFILES_DIR="${PROFILES_DIR:-${AWG_SERVER_DIR}/../singbox-profiles}"
 SECRETS="${PROFILES_DIR}/.secrets.yaml"
-NOTIFY="${NOTIFY:-}"
+NOTIFY="${NOTIFY:-/opt/docker/scripts/notify-discord.sh}"
 DRY_RUN=0
 
 [[ "${1:-}" == "--dry-run" ]] && DRY_RUN=1
@@ -78,10 +78,21 @@ if [[ ${DRY_RUN} -eq 1 ]]; then
 fi
 
 # Backup before rewrite. Pattern matches the .secrets.yaml.bak-* gitignore
-# so the backup never lands in version control.
+# so the backup never lands in version control. The `-awgparams-` infix
+# distinguishes these from rotate-shortids.sh (`-shortid-`) and
+# rotate-realitykey.sh (`-reality-`) backups so each script's retention
+# trim only touches its own family AND clearway:rotations can derive
+# "last fire" per tier without ambiguity.
 ts=$(date -u +%Y%m%dT%H%M%SZ)
-cp "${SECRETS}" "${SECRETS}.bak-${ts}"
-chmod 600 "${SECRETS}.bak-${ts}"
+BACKUP="${SECRETS}.bak-awgparams-${ts}"
+cp "${SECRETS}" "${BACKUP}"
+chmod 600 "${BACKUP}"
+
+# Trim old awg-params backups beyond retention. Mirrors the pattern in
+# rotate-shortids.sh / rotate-realitykey.sh — keep the 3 most recent
+# from THIS rotation family.
+RETAIN=3
+ls -1t "${SECRETS}".bak-awgparams-* 2>/dev/null | tail -n +$((RETAIN + 1)) | xargs -r rm -f
 
 # In-place rewrite of just the obfuscation params, preserving every other
 # line. A python3 driver is more robust than sed here (handles arbitrary
@@ -130,15 +141,27 @@ PY
 # prompt; render.py's auto_yes still walks the rename detector cleanly
 # (1:1 renames auto-apply, ambiguous abort).
 if ! python3 "${PROFILES_DIR}/render.py" -y; then
-  notify "🚫 AWG param rotation: render.py failed after rewriting .secrets.yaml. State on disk: rewritten secrets but stale .conf files. Restore from ${SECRETS}.bak-${ts} and investigate."
+  notify "🚫 **AWG obfuscation-param rotation FAILED** (manual tier) — render.py errored after \`.secrets.yaml\` was rewritten. State on disk: new secrets, stale .conf files. Restore from \`${BACKUP##*/}\` and investigate."
   exit 1
 fi
 
 # Reconcile awg-server with the new server config.
 if ! "${AWG_SERVER_DIR}/safe-restart.sh"; then
-  notify "🚨 AWG param rotation: safe-restart.sh failed. New configs are written but awg-server is on the old params. Roll back: \`cp ${SECRETS}.bak-${ts} ${SECRETS} && python3 ${PROFILES_DIR}/render.py -y && ${AWG_SERVER_DIR}/safe-restart.sh\`"
+  notify "🚨 **AWG obfuscation-param rotation FAILED** (manual tier) — safe-restart.sh errored. New configs written but awg-server is still on the old params. Roll back: \`cp ${BACKUP} ${SECRETS} && python3 ${PROFILES_DIR}/render.py -y && ${AWG_SERVER_DIR}/safe-restart.sh\`"
   exit 1
 fi
 
-notify "🔄 AWG obfuscation params rotated. Every AWG device must re-import its .conf from \`https://\${PROFILE_HOST}/p/<secret>/awg-<dev>.conf\` — old params will fail handshake until they do."
-echo "rotation complete; backup at ${SECRETS}.bak-${ts}"
+# Count active AWG devices for the success message — one .conf per device
+# under srv/p/<secret>/awg-*.conf. Operator-actionable signal: "you have N
+# laptops/phones to walk through re-import."
+device_count=$(find "${PROFILES_DIR}/srv/p" -maxdepth 2 -name 'awg-*.conf' 2>/dev/null | wc -l)
+notify "$(cat <<EOF
+🔄 **AWG obfuscation-param rotation** — manual tier (recommended quarterly, or after a regional throughput drop suggesting DPI fingerprinting)
+• rotated: Jc / Jmin / Jmax / S1 / S2 / H1-H4 (eight params)
+• devices to re-import: **${device_count}**
+• continuity: ⚠️ flag day — no grace window (single server-side param tuple, atomic on-the-wire). Old .conf files fail handshake until replaced.
+• client refresh: ❗ **manual** — Amnezia VPN app does NOT auto-refresh imported .conf files. Each device must re-download from \`https://\${PROFILE_HOST}/p/<secret>/awg-<device>.conf\` and re-import.
+• cron: none (manual-only by design — re-import friction would lock users out if fired unattended)
+EOF
+)"
+echo "rotation complete; backup at ${BACKUP}; ${device_count} devices need .conf re-import"

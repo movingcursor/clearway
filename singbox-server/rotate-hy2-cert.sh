@@ -44,7 +44,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SINGBOX_SERVER_DIR="${SINGBOX_SERVER_DIR:-${SCRIPT_DIR}}"
 SINGBOX_PROFILES_DIR="${SINGBOX_PROFILES_DIR:-$(cd "${SINGBOX_SERVER_DIR}/../singbox-profiles" && pwd)}"
 HY2_SNI="${HY2_SNI:-cloud.example.com}"
-NOTIFY="${NOTIFY:-}"
+NOTIFY="${NOTIFY:-/opt/docker/scripts/notify-discord.sh}"
+
+# Next yearly rotation = next April 1 @ 05:00 UTC. Computed at runtime so
+# the message stays accurate regardless of when this script is run.
+NEXT_ROTATION=$(python3 -c "
+import datetime
+t = datetime.date.today()
+candidate = datetime.date(t.year, 4, 1)
+if candidate <= t: candidate = datetime.date(t.year + 1, 4, 1)
+print(candidate.isoformat())
+")
 
 CERT="${SINGBOX_SERVER_DIR}/hy2.crt"
 KEY="${SINGBOX_SERVER_DIR}/hy2.key"
@@ -70,7 +80,7 @@ notify() {
 # into a broken manifest produces a config we can't roll back through
 # render.py.
 if ! "${SINGBOX_PROFILES_DIR}/render.py" --validate >/dev/null 2>&1; then
-  notify "🚨 hy2 cert rotation **ABORTED**: pre-flight \`render.py --validate\` failed — fix the manifest first"
+  notify "🚨 **Hysteria2 cert rotation ABORTED** (yearly tier) — pre-flight \`render.py --validate\` failed; fix the manifest first"
   echo "pre-flight validate failed — aborting" >&2
   exit 1
 fi
@@ -100,7 +110,7 @@ if ! openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
      -keyout "${NEW_KEY}" -out "${NEW_CERT}" \
      -days "${DAYS}" -nodes -subj "${SUBJ}" \
      -addext "subjectAltName=DNS:${HY2_SNI}" >/dev/null 2>&1; then
-  notify "🚨 hy2 cert rotation **ABORTED**: openssl failed — live cert untouched"
+  notify "🚨 **Hysteria2 cert rotation ABORTED** (yearly tier) — openssl failed; live cert untouched"
   echo "openssl failed" >&2
   exit 1
 fi
@@ -110,7 +120,7 @@ fi
 cert_spki=$(openssl x509 -in "${NEW_CERT}" -pubkey -noout 2>/dev/null | openssl ec -pubin -outform DER 2>/dev/null | sha256sum | awk '{print $1}')
 key_spki=$(openssl ec -in "${NEW_KEY}" -pubout 2>/dev/null | openssl ec -pubin -outform DER 2>/dev/null | sha256sum | awk '{print $1}')
 if [[ -z "${cert_spki}" || "${cert_spki}" != "${key_spki}" ]]; then
-  notify "🚨 hy2 cert rotation **ABORTED**: new cert/key pair doesn't match"
+  notify "🚨 **Hysteria2 cert rotation ABORTED** (yearly tier) — new cert/key pair doesn't match"
   echo "cert/key mismatch" >&2
   exit 1
 fi
@@ -145,14 +155,23 @@ mv "${NEW_KEY}"  "${KEY}"
 # auto-roll back because a failed render could leave clients on the new
 # pin already if render succeeded partway.
 if ! "${SINGBOX_PROFILES_DIR}/render.py" -y; then
-  notify "🚨 hy2 cert rotation: **files swapped but render.py failed**. Manual rollback: \`mv ${BAK_CERT} ${CERT} && mv ${BAK_KEY} ${KEY} && cd ${SINGBOX_PROFILES_DIR} && ./render.py -y\`"
+  notify "🚨 **Hysteria2 cert rotation FAILED AT RENDER** (yearly tier) — files swapped but render.py errored. Rollback: \`mv ${BAK_CERT} ${CERT} && mv ${BAK_KEY} ${KEY} && cd ${SINGBOX_PROFILES_DIR} && ./render.py -y\`"
   echo "render.py failed — manual rollback required" >&2
   exit 1
 fi
 
 expiry=$(openssl x509 -in "${CERT}" -noout -enddate | cut -d= -f2)
 fingerprint=$(openssl x509 -in "${CERT}" -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':')
-notify "🔐 hy2 cert rotated: new cert valid until **${expiry}**, SHA256 \`${fingerprint:0:24}…\`. Clients pull new pin on next poll; hy2 outage window = one poll cycle (other inbounds unaffected, urltest carries traffic)."
+notify "$(cat <<EOF
+🔐 **Hysteria2 cert rotation** — yearly tier (April 1 @ 05:00 UTC)
+• new cert valid until: **${expiry}**
+• SHA256 fingerprint: \`${fingerprint:0:24}…\`
+• continuity: ⚠️ flag day — no dual-cert window in sing-box TLS. Clients fail hy2 handshakes until they poll the new pin.
+• fallback: Reality / ShadowTLS / WS-CDN outbounds unaffected; urltest carries traffic during the gap.
+• clients refresh on next poll (Windows updater hourly + boot, mobile per \`auto_update_interval\`)
+• next rotation: **${NEXT_ROTATION}** @ 05:00 UTC
+EOF
+)"
 echo "rotation complete"
 echo "  new cert valid until: ${expiry}"
 echo "  sha256 fingerprint:   ${fingerprint}"

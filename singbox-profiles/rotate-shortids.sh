@@ -36,8 +36,17 @@ set -uo pipefail
 PROFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${PROFILES_DIR}"
 
-NOTIFY="${NOTIFY:-}"
+NOTIFY="${NOTIFY:-/opt/docker/scripts/notify-discord.sh}"
 SECRETS=".secrets.yaml"
+
+# Next monthly rotation = first day of next month at 04:00 UTC. Computed
+# at runtime so the notification stays accurate even if cron is changed.
+NEXT_ROTATION=$(python3 -c "
+import datetime
+t = datetime.date.today()
+y, m = (t.year + 1, 1) if t.month == 12 else (t.year, t.month + 1)
+print(datetime.date(y, m, 1).isoformat())
+")
 
 notify() {
   if [[ -n "${NOTIFY}" && -x "${NOTIFY}" ]]; then
@@ -48,7 +57,7 @@ notify() {
 }
 
 if [[ ! -f "${SECRETS}" ]]; then
-  notify "❌ rotate-shortids: ${SECRETS} missing — rotation skipped"
+  notify "❌ **Reality short_id rotation ABORTED** (monthly tier) — \`${SECRETS}\` missing"
   exit 1
 fi
 
@@ -68,7 +77,7 @@ BACKUP="${SECRETS}.bak-shortid-${STAMP}"
 # March, something changed in April") without accumulating unbounded files.
 RETAIN=3
 cp -p "${SECRETS}" "${BACKUP}" || {
-  notify "❌ rotate-shortids: cp ${SECRETS} ${BACKUP} failed"
+  notify "❌ **Reality short_id rotation ABORTED** (monthly tier) — cp ${SECRETS} → ${BACKUP##*/} failed"
   exit 1
 }
 
@@ -106,7 +115,7 @@ if (( rc != 0 )); then
   # Python bailed — restore from backup so we never leave .secrets.yaml
   # in a half-written state.
   cp -p "${BACKUP}" "${SECRETS}"
-  notify "❌ rotate-shortids: short_id regen failed (rc=${rc}); restored from ${BACKUP}"
+  notify "❌ **Reality short_id rotation FAILED** (monthly tier) — short_id regen rc=${rc}; \`.secrets.yaml\` restored from ${BACKUP##*/}"
   exit 1
 fi
 
@@ -115,7 +124,7 @@ fi
 # (server sync + safe-restart, plus updated srv/p/ content).
 if ! ./render.py -y 2>&1; then
   cp -p "${BACKUP}" "${SECRETS}"
-  notify "❌ rotate-shortids: render.py failed; restored from ${BACKUP}"
+  notify "❌ **Reality short_id rotation FAILED** (monthly tier) — render.py errored; \`.secrets.yaml\` restored from ${BACKUP##*/}"
   exit 1
 fi
 
@@ -123,4 +132,11 @@ fi
 # as the rotator, parsed out of the backup so we report the pre-rotation
 # count (== number rotated).
 rotated=$(grep -cE '^\s+short_id:\s+[a-f0-9]{16}\s*$' "${BACKUP}")
-notify "🔁 Reality short_ids rotated for ${rotated} devices (old ids in 2h grace via .pending-rotations.yaml). Clients pick up the new ids on next poll."
+notify "$(cat <<EOF
+🔁 **Reality short_id rotation** — monthly tier (1st of every month @ 04:00 UTC)
+• rotated: **${rotated}** device short_ids
+• continuity: zero-downtime — old ids honoured for 2h grace via \`.pending-rotations.yaml\`
+• clients pick up new ids on next poll (Windows updater hourly + boot, mobile per \`auto_update_interval\`)
+• next rotation: **${NEXT_ROTATION}** @ 04:00 UTC
+EOF
+)"
