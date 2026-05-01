@@ -62,7 +62,13 @@ $REMOTE_URL  = 'https://__PROFILE_HOST__/p/__USER_SECRET__/__CONFIG_FILENAME__'
 $VERSION_URL = 'https://__PROFILE_HOST__/mirror/sing-box-version.txt'
 # Optional notification webhook URL (Discord, Slack, generic JSON POST).
 # Empty string disables notifications — typically reserved for admin users.
-$WEBHOOK_URL = '__WEBHOOK_URL__'
+# Distinct placeholder (__INSTALL_WEBHOOK_URL__) so generate-installer.sh's
+# sed pass only touches THIS line. The here-string further down keeps the
+# bare __WEBHOOK_URL__ token because it is substituted at install time by
+# the runtime $updaterContent.Replace('__WEBHOOK_URL__', $WEBHOOK_URL) chain
+# — and PowerShell's String.Replace throws on an empty oldValue, which is
+# exactly what we'd get if sed reached that .Replace() with an empty webhook.
+$WEBHOOK_URL = '__INSTALL_WEBHOOK_URL__'
 # Mirror of nssm-2.24/win64/nssm.exe — served by our own nginx to avoid
 # the flaky upstream nssm.cc. sha256 pinned below for integrity.
 $NSSM_URL    = 'https://__PROFILE_HOST__/mirror/nssm.exe'

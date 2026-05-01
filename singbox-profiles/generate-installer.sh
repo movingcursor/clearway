@@ -50,11 +50,16 @@ fi
 
 # sed -e chain with '|' delimiter so URLs don't collide with '/' in the
 # value. Placeholders are the literal tokens used in the template.
+# __INSTALL_WEBHOOK_URL__ is distinct from __WEBHOOK_URL__: the latter
+# lives inside the embedded here-string AND inside the runtime
+# .Replace('__WEBHOOK_URL__', $WEBHOOK_URL) call. Substituting it at
+# generation time would rewrite that .Replace to .Replace('', ...) for
+# users with no webhook, which PowerShell rejects ("oldValue length 0").
 sed \
     -e "s|__PROFILE_HOST__|$profile_host|g" \
     -e "s|__USER_SECRET__|$secret|g" \
     -e "s|__CONFIG_FILENAME__|$cfg|g" \
-    -e "s|__WEBHOOK_URL__|$webhook|g" \
+    -e "s|__INSTALL_WEBHOOK_URL__|$webhook|g" \
     "$TEMPLATE" > "$out"
 
 echo "generate-installer: wrote $out (user=$user cfg=$cfg host=$profile_host webhook=$([[ -n "$webhook" ]] && echo yes || echo no))"
